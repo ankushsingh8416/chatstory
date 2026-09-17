@@ -69,19 +69,22 @@ export const navigationSections: NavSection[] = [
   },
   {
     label: 'nav.sectionMessaging',
-    permissions: ['settings.chatbot', 'chatbot.keywords', 'flows.chatbot', 'chatbot.ai', 'transfers', 'campaigns', 'templates', 'flows.whatsapp'],
+    permissions: ['settings.chatbot', 'chatbot.keywords', 'flows.chatbot', 'chatbot.ai', 'transfers', 'data_connections', 'knowledge_base', 'campaigns', 'templates', 'flows.whatsapp'],
     items: [
       {
         name: 'nav.chatbot',
         path: '/chatbot',
         icon: Bot,
         permission: 'settings.chatbot',
-        childPermissions: ['settings.chatbot', 'chatbot.keywords', 'flows.chatbot', 'chatbot.ai', 'transfers'],
+        childPermissions: ['settings.chatbot', 'chatbot.keywords', 'flows.chatbot', 'chatbot.ai', 'transfers', 'data_connections', 'knowledge_base'],
         children: [
           { name: 'nav.overview', path: '/chatbot', icon: Bot, permission: 'settings.chatbot' },
+          { name: 'nav.settings', path: '/chatbot/settings', icon: Settings, permission: 'settings.chatbot' },
           { name: 'nav.keywords', path: '/chatbot/keywords', icon: Key, permission: 'chatbot.keywords' },
           { name: 'nav.flows', path: '/chatbot/flows', icon: Workflow, permission: 'flows.chatbot' },
           { name: 'nav.aiContexts', path: '/chatbot/ai', icon: Sparkles, permission: 'chatbot.ai' },
+          { name: 'nav.dataConnections', path: '/chatbot/data-connections', icon: Database, permission: 'data_connections' },
+          { name: 'nav.knowledgeBase', path: '/chatbot/knowledge-base', icon: BookOpen, permission: 'knowledge_base' },
           { name: 'nav.transfers', path: '/chatbot/transfers', icon: UserX, permission: 'transfers' }
         ]
       },
@@ -147,7 +150,7 @@ export const navigationSections: NavSection[] = [
   },
   {
     label: '',
-    permissions: ['settings.general', 'settings.chatbot', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'data_connections', 'knowledge_base', 'custom_actions', 'settings.sso', 'audit_logs'],
+    permissions: ['settings.general', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'custom_actions', 'settings.sso', 'audit_logs'],
     pinBottom: true,
     items: [
       {
@@ -155,10 +158,9 @@ export const navigationSections: NavSection[] = [
         path: '/settings',
         icon: Settings,
         permission: 'settings.general',
-        childPermissions: ['settings.general', 'settings.chatbot', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'data_connections', 'knowledge_base', 'custom_actions', 'settings.sso', 'audit_logs'],
+        childPermissions: ['settings.general', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'custom_actions', 'settings.sso', 'audit_logs'],
         children: [
           { name: 'nav.general', path: '/settings', icon: Settings, permission: 'settings.general' },
-          { name: 'nav.chatbot', path: '/settings/chatbot', icon: Bot, permission: 'settings.chatbot' },
           { name: 'nav.accounts', path: '/settings/accounts', icon: Users, permission: 'accounts' },
           { name: 'nav.contacts', path: '/settings/contacts', icon: Contact, permission: 'contacts' },
           { name: 'nav.cannedResponses', path: '/settings/canned-responses', icon: MessageSquareText, permission: 'canned_responses' },
@@ -168,8 +170,6 @@ export const navigationSections: NavSection[] = [
           { name: 'nav.roles', path: '/settings/roles', icon: Shield, permission: 'roles' },
           { name: 'nav.apiKeys', path: '/settings/api-keys', icon: Key, permission: 'api_keys' },
           { name: 'nav.webhooks', path: '/settings/webhooks', icon: Webhook, permission: 'webhooks' },
-          { name: 'nav.dataConnections', path: '/settings/data-connections', icon: Database, permission: 'data_connections' },
-          { name: 'nav.knowledgeBase', path: '/settings/knowledge-base', icon: BookOpen, permission: 'knowledge_base' },
           { name: 'nav.customActions', path: '/settings/custom-actions', icon: Zap, permission: 'custom_actions' },
           { name: 'nav.sso', path: '/settings/sso', icon: ShieldCheck, permission: 'settings.sso' },
           { name: 'nav.auditLogs', path: '/settings/audit-logs', icon: ScrollText, permission: 'audit_logs' }

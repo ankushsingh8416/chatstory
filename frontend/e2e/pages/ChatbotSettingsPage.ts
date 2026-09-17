@@ -25,7 +25,7 @@ export class ChatbotSettingsPage extends BasePage {
   }
 
   async goto() {
-    await this.page.goto('/settings/chatbot')
+    await this.page.goto('/chatbot/settings')
     await this.page.waitForLoadState('networkidle')
   }
 

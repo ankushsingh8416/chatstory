@@ -19,7 +19,7 @@ const isLoading = ref(true)
 
 const resourceRouteMap: Record<string, (id: string) => string> = {
   template: (id) => `/templates/${id}`,
-  chatbot_settings: () => `/settings/chatbot`,
+  chatbot_settings: () => `/chatbot/settings`,
   chatbot_flow: (id) => `/chatbot/flows/${id}`,
   keyword_rule: (id) => `/chatbot/keywords/${id}`,
   account: (id) => `/settings/accounts/${id}`,

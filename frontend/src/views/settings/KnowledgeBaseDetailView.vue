@@ -101,7 +101,7 @@ watch(() => form.value.collection_name, () => {
 watch(form, () => { hasChanges.value = true }, { deep: true })
 
 const breadcrumbs = computed(() => [
-  { label: t('nav.knowledgeBase'), href: '/settings/knowledge-base' },
+  { label: t('nav.knowledgeBase'), href: '/chatbot/knowledge-base' },
   { label: isNew.value ? t('knowledgeBase.newKnowledgeBase') : (kb.value?.name || '') },
 ])
 
@@ -195,7 +195,7 @@ async function save() {
       const created = (response.data as any).data || response.data
       hasChanges.value = false
       toast.success(t('common.createdSuccess', { resource: t('resources.KnowledgeBase') }))
-      router.replace(`/settings/knowledge-base/${created.id}`)
+      router.replace(`/chatbot/knowledge-base/${created.id}`)
     } else {
       await knowledgeBasesService.update(kb.value!.id, {
         name: form.value.name.trim(),
@@ -221,7 +221,7 @@ async function deleteKB() {
     await knowledgeBasesService.delete(kb.value.id)
     toast.success(t('common.deletedSuccess', { resource: t('resources.KnowledgeBase') }))
     hasChanges.value = false
-    router.push('/settings/knowledge-base')
+    router.push('/chatbot/knowledge-base')
   } catch (e) {
     toast.error(getErrorMessage(e, t('common.failedDelete', { resource: t('resources.knowledgeBase') })))
   } finally {
@@ -429,7 +429,7 @@ onMounted(async () => {
       :title="isNew ? $t('knowledgeBase.newKnowledgeBase') : (kb?.name || '')"
       :icon="BookOpen"
       icon-gradient="bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/20"
-      back-link="/settings/knowledge-base"
+      back-link="/chatbot/knowledge-base"
       :breadcrumbs="breadcrumbs"
       :is-loading="isLoading"
       :is-not-found="isNotFound"
@@ -451,7 +451,7 @@ onMounted(async () => {
         <CardContent class="py-8 text-center space-y-3">
           <AlertTriangle class="h-8 w-8 mx-auto text-amber-500" />
           <p class="text-sm text-muted-foreground">{{ $t('knowledgeBase.noDataConnectionsYet') }}</p>
-          <RouterLink to="/settings/data-connections/new">
+          <RouterLink to="/chatbot/data-connections/new">
             <Button variant="outline" size="sm">{{ $t('knowledgeBase.createDataConnectionFirst') }}</Button>
           </RouterLink>
         </CardContent>

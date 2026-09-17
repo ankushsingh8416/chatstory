@@ -103,9 +103,9 @@ onMounted(() => fetchConnections())
 
 <template>
   <div class="flex flex-col h-full bg-[#0a0a0b] light:bg-gray-50">
-    <PageHeader :title="$t('dataConnections.title')" :subtitle="$t('dataConnections.subtitle')" :icon="Database" icon-gradient="bg-gradient-to-br from-cyan-500 to-blue-600 shadow-cyan-500/20" back-link="/settings">
+    <PageHeader :title="$t('dataConnections.title')" :subtitle="$t('dataConnections.subtitle')" :icon="Database" icon-gradient="bg-gradient-to-br from-cyan-500 to-blue-600 shadow-cyan-500/20" back-link="/chatbot">
       <template #actions>
-        <RouterLink v-if="canWrite" to="/settings/data-connections/new">
+        <RouterLink v-if="canWrite" to="/chatbot/data-connections/new">
           <Button variant="outline" size="sm"><Plus class="h-4 w-4 mr-2" />{{ $t('dataConnections.addConnection') }}</Button>
         </RouterLink>
       </template>
@@ -136,7 +136,7 @@ onMounted(() => fetchConnections())
             <CardContent>
               <DataTable :items="filteredConnections" :columns="columns" :is-loading="isLoading" :empty-icon="Database" :empty-title="searchQuery ? $t('dataConnections.noMatchingConnections') : $t('dataConnections.noConnectionsYet')" :empty-description="searchQuery ? $t('dataConnections.noMatchingConnectionsDesc') : $t('dataConnections.noConnectionsYetDesc')" v-model:sort-key="sortKey" v-model:sort-direction="sortDirection" item-name="dataConnections">
                 <template #cell-name="{ item: connection }">
-                  <RouterLink :to="`/settings/data-connections/${connection.id}`" class="font-medium text-inherit no-underline hover:opacity-80">{{ connection.name }}</RouterLink>
+                  <RouterLink :to="`/chatbot/data-connections/${connection.id}`" class="font-medium text-inherit no-underline hover:opacity-80">{{ connection.name }}</RouterLink>
                 </template>
                 <template #cell-type="{ item: connection }">
                   <Badge variant="outline">{{ typeLabel(connection.type) }}</Badge>
@@ -150,14 +150,14 @@ onMounted(() => fetchConnections())
                 <template #cell-created="{ item: connection }"><span class="text-muted-foreground">{{ formatDate(connection.created_at) }}</span></template>
                 <template #cell-actions="{ item: connection }">
                   <div class="flex items-center justify-end gap-1">
-                    <RouterLink :to="`/settings/data-connections/${connection.id}`">
+                    <RouterLink :to="`/chatbot/data-connections/${connection.id}`">
                       <IconButton :icon="Pencil" :label="$t('common.edit')" class="h-8 w-8" />
                     </RouterLink>
                     <IconButton v-if="canDelete" :icon="Trash2" :label="$t('common.delete')" class="h-8 w-8 text-destructive" @click="connectionToDelete = connection; isDeleteDialogOpen = true" />
                   </div>
                 </template>
                 <template #empty-action>
-                  <RouterLink v-if="canWrite" to="/settings/data-connections/new">
+                  <RouterLink v-if="canWrite" to="/chatbot/data-connections/new">
                     <Button variant="outline" size="sm"><Plus class="h-4 w-4 mr-2" />{{ $t('dataConnections.addConnection') }}</Button>
                   </RouterLink>
                 </template>

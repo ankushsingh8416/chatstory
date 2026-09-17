@@ -91,8 +91,8 @@ function statusLabel(status: DataConnectionStatus): string {
 }
 
 const breadcrumbs = computed(() => [
-  { label: t('nav.settings'), href: '/settings' },
-  { label: t('nav.dataConnections'), href: '/settings/data-connections' },
+  { label: t('nav.chatbot'), href: '/chatbot' },
+  { label: t('nav.dataConnections'), href: '/chatbot/data-connections' },
   { label: isNew.value ? t('dataConnections.newConnection') : (connection.value?.name || form.value.name || '') },
 ])
 
@@ -204,7 +204,7 @@ async function save() {
       const created = (response.data as any).data || response.data
       hasChanges.value = false
       toast.success(t('common.createdSuccess', { resource: t('resources.DataConnection') }))
-      router.replace(`/settings/data-connections/${created.id}`)
+      router.replace(`/chatbot/data-connections/${created.id}`)
     } else {
       await dataConnectionsService.update(connection.value!.id, payload)
       toast.success(t('common.updatedSuccess', { resource: t('resources.DataConnection') }))
@@ -255,7 +255,7 @@ async function deleteConnection() {
     await dataConnectionsService.delete(connection.value.id)
     toast.success(t('common.deletedSuccess', { resource: t('resources.DataConnection') }))
     hasChanges.value = false
-    router.push('/settings/data-connections')
+    router.push('/chatbot/data-connections')
   } catch (e) {
     toast.error(getErrorMessage(e, t('common.failedDelete', { resource: t('resources.dataConnection') })))
   } finally {
@@ -280,7 +280,7 @@ onMounted(async () => {
       :title="isNew ? $t('dataConnections.newConnection') : (connection?.name || '')"
       :icon="Database"
       icon-gradient="bg-gradient-to-br from-cyan-500 to-blue-600 shadow-cyan-500/20"
-      back-link="/settings/data-connections"
+      back-link="/chatbot/data-connections"
       :breadcrumbs="breadcrumbs"
       :is-loading="isLoading"
       :is-not-found="isNotFound"

@@ -87,9 +87,9 @@ onMounted(() => fetchKnowledgeBases())
 
 <template>
   <div class="flex flex-col h-full bg-[#0a0a0b] light:bg-gray-50">
-    <PageHeader :title="$t('knowledgeBase.title')" :description="$t('knowledgeBase.subtitle')" :icon="BookOpen" icon-gradient="bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/20" back-link="/settings">
+    <PageHeader :title="$t('knowledgeBase.title')" :description="$t('knowledgeBase.subtitle')" :icon="BookOpen" icon-gradient="bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/20" back-link="/chatbot">
       <template #actions>
-        <RouterLink v-if="canWrite" to="/settings/knowledge-base/new">
+        <RouterLink v-if="canWrite" to="/chatbot/knowledge-base/new">
           <Button variant="outline" size="sm"><Plus class="h-4 w-4 mr-2" />{{ $t('knowledgeBase.createKnowledgeBase') }}</Button>
         </RouterLink>
       </template>
@@ -119,7 +119,7 @@ onMounted(() => fetchKnowledgeBases())
           <CardContent>
             <DataTable :items="filteredKnowledgeBases" :columns="columns" :is-loading="isLoading" :empty-icon="BookOpen" :empty-title="searchQuery ? $t('knowledgeBase.noMatchingKnowledgeBases') : $t('knowledgeBase.noKnowledgeBasesYet')" :empty-description="searchQuery ? $t('knowledgeBase.noMatchingKnowledgeBasesDesc') : $t('knowledgeBase.noKnowledgeBasesYetDesc')" v-model:sort-key="sortKey" v-model:sort-direction="sortDirection" item-name="knowledgeBases">
               <template #cell-name="{ item: kb }">
-                <RouterLink :to="`/settings/knowledge-base/${kb.id}`" class="font-medium text-inherit no-underline hover:opacity-80">{{ kb.name }}</RouterLink>
+                <RouterLink :to="`/chatbot/knowledge-base/${kb.id}`" class="font-medium text-inherit no-underline hover:opacity-80">{{ kb.name }}</RouterLink>
               </template>
               <template #cell-dataConnection="{ item: kb }"><span class="text-muted-foreground">{{ kb.data_connection_name || '—' }}</span></template>
               <template #cell-documents="{ item: kb }"><span>{{ kb.document_count }}</span></template>
@@ -129,14 +129,14 @@ onMounted(() => fetchKnowledgeBases())
               <template #cell-created="{ item: kb }"><span class="text-muted-foreground">{{ formatDate(kb.created_at) }}</span></template>
               <template #cell-actions="{ item: kb }">
                 <div class="flex items-center justify-end gap-1">
-                  <RouterLink :to="`/settings/knowledge-base/${kb.id}`">
+                  <RouterLink :to="`/chatbot/knowledge-base/${kb.id}`">
                     <IconButton :icon="Pencil" :label="$t('common.edit')" class="h-8 w-8" />
                   </RouterLink>
                   <IconButton v-if="canDelete" :icon="Trash2" :label="$t('common.delete')" class="h-8 w-8 text-destructive" @click="kbToDelete = kb; isDeleteDialogOpen = true" />
                 </div>
               </template>
               <template #empty-action>
-                <RouterLink v-if="canWrite" to="/settings/knowledge-base/new">
+                <RouterLink v-if="canWrite" to="/chatbot/knowledge-base/new">
                   <Button variant="outline" size="sm"><Plus class="h-4 w-4 mr-2" />{{ $t('knowledgeBase.createKnowledgeBase') }}</Button>
                 </RouterLink>
               </template>

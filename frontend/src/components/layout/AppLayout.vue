@@ -6,14 +6,13 @@ import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  MessageSquare,
   ChevronLeft,
   ChevronRight,
   Menu,
   X
 } from 'lucide-vue-next'
 import { wsService } from '@/services/websocket'
-import { authService } from '@/services/api'
+import { authService, organizationService } from '@/services/api'
 import OrganizationSwitcher from './OrganizationSwitcher.vue'
 import UserMenu from './UserMenu.vue'
 import ActiveCallPanel from '@/components/calling/ActiveCallPanel.vue'
@@ -25,14 +24,28 @@ useI18n() // Enable $t() in template
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-const isCollapsed = ref(true)
+const isCollapsed = ref(false)
 const isMobileMenuOpen = ref(false)
+
+// Org branding for the sidebar/mobile header — name isn't on the JWT/user
+// payload, so it comes from a dedicated /org/settings call.
+const orgName = ref('')
+const brandName = computed(() => orgName.value || 'Whatomate')
 
 // Refresh user data and connect WebSocket on mount
 onMounted(() => {
   if (authStore.isAuthenticated) {
     // Fetch fresh permissions in background (non-destructive — interceptor handles 401)
     authStore.refreshUserData()
+
+    organizationService.getSettings()
+      .then(resp => {
+        const data = resp.data.data || resp.data
+        orgName.value = data?.name || ''
+      })
+      .catch(() => {
+        // Request failed — falls back to the default name
+      })
 
     wsService.connect(async () => {
       try {
@@ -151,10 +164,8 @@ const handleLogout = async () => {
     <!-- Mobile header -->
     <header class="fixed top-0 left-0 right-0 z-50 flex h-12 items-center justify-between border-b border-white/10 bg-[#0f3d33]/95 backdrop-blur-sm px-3 md:hidden">
       <RouterLink to="/" class="flex items-center gap-2">
-        <div class="h-9 w-9 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-          <MessageSquare class="h-5 w-5 text-white" />
-        </div>
-        <span class="font-semibold text-sm text-white">Whank</span>
+        <img src="/whatsapp-bg/whatsapp-icon.webp" alt="" class="h-9 w-9 shrink-0 object-contain" />
+        <span class="font-semibold text-sm text-white">{{ brandName }}</span>
       </RouterLink>
       <Button
         variant="ghost"
@@ -194,14 +205,12 @@ const handleLogout = async () => {
         :class="isCollapsed ? 'justify-center' : 'justify-between'"
       >
         <RouterLink to="/" class="flex items-center gap-2">
-          <div class="h-9 w-9 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-            <MessageSquare class="h-5 w-5 text-white" />
-          </div>
+          <img src="/whatsapp-bg/whatsapp-icon.webp" alt="" class="h-9 w-9 shrink-0 object-contain" />
           <span
             v-if="!isCollapsed"
             class="font-semibold text-sm text-white"
           >
-            Whank
+            {{ brandName }}
           </span>
         </RouterLink>
         <!-- Collapse toggle: inline here only while expanded, where there's

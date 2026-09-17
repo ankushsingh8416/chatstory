@@ -15,22 +15,15 @@ import {
   Workflow,
   Sparkles,
   Power,
-  Settings,
   TrendingUp,
   Users,
-  MessageSquare,
-  Clock
+  MessageSquare
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
 
 interface ChatbotSettings {
   enabled: boolean
-  greeting_message: string
-  fallback_message: string
-  session_timeout_minutes: number
-  ai_enabled: boolean
-  ai_provider: string
 }
 
 interface Stats {
@@ -45,12 +38,7 @@ interface Stats {
 }
 
 const settings = ref<ChatbotSettings>({
-  enabled: false,
-  greeting_message: '',
-  fallback_message: '',
-  session_timeout_minutes: 30,
-  ai_enabled: false,
-  ai_provider: ''
+  enabled: false
 })
 
 const stats = ref<Stats>({
@@ -278,56 +266,6 @@ const statCards = computed(() => [
               </p>
             </div>
           </RouterLink>
-        </div>
-
-        <!-- Current Settings -->
-        <div class="rounded-xl border border-white/[0.08] bg-white/[0.02] light:bg-white light:border-gray-200">
-          <div class="p-6">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="text-lg font-semibold text-white light:text-gray-900">{{ $t('chatbot.currentConfiguration') }}</h3>
-                <p class="text-sm text-white/40 light:text-gray-500">{{ $t('chatbot.configOverview') }}</p>
-              </div>
-              <RouterLink to="/settings/chatbot">
-                <Button variant="outline" size="sm">
-                  <Settings class="h-4 w-4 mr-2" />
-                  {{ $t('chatbot.editSettings') }}
-                </Button>
-              </RouterLink>
-            </div>
-          </div>
-          <div class="px-6 pb-6">
-            <div class="grid gap-4 md:grid-cols-2">
-              <div class="space-y-2">
-                <h4 class="font-medium text-sm text-white/70 light:text-gray-700">{{ $t('chatbot.greetingMessage') }}</h4>
-                <p class="text-sm text-white/50 light:text-gray-600 bg-white/[0.04] light:bg-gray-100 p-3 rounded-lg">
-                  {{ settings.greeting_message || $t('chatbot.notConfigured') }}
-                </p>
-              </div>
-              <div class="space-y-2">
-                <h4 class="font-medium text-sm text-white/70 light:text-gray-700">{{ $t('chatbot.fallbackMessage') }}</h4>
-                <p class="text-sm text-white/50 light:text-gray-600 bg-white/[0.04] light:bg-gray-100 p-3 rounded-lg">
-                  {{ settings.fallback_message || $t('chatbot.notConfigured') }}
-                </p>
-              </div>
-              <div class="space-y-2">
-                <h4 class="font-medium text-sm text-white/70 light:text-gray-700">{{ $t('chatbot.sessionTimeout') }}</h4>
-                <div class="flex items-center gap-2 text-sm text-white/50 light:text-gray-600">
-                  <Clock class="h-4 w-4" />
-                  {{ $t('chatbot.minutes', { count: settings.session_timeout_minutes }) }}
-                </div>
-              </div>
-              <div class="space-y-2">
-                <h4 class="font-medium text-sm text-white/70 light:text-gray-700">{{ $t('chatbot.aiProvider') }}</h4>
-                <div class="flex items-center gap-2">
-                  <Badge v-if="settings.ai_enabled" class="bg-emerald-500/20 text-emerald-400 light:bg-emerald-100 light:text-emerald-700">
-                    {{ settings.ai_provider || $t('chatbot.notConfigured') }}
-                  </Badge>
-                  <Badge v-else class="bg-white/[0.08] text-white/50 light:bg-gray-100 light:text-gray-500">{{ $t('chatbot.disabled') }}</Badge>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </ScrollArea>

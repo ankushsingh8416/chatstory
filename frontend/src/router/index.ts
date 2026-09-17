@@ -97,7 +97,9 @@ const router = createRouter({
         },
         {
           path: 'chatbot/settings',
-          redirect: '/settings/chatbot'
+          name: 'chatbot-settings',
+          component: () => import('@/views/settings/ChatbotSettingsView.vue'),
+          meta: { permission: 'settings.chatbot' }
         },
         {
           path: 'chatbot/keywords',
@@ -167,9 +169,7 @@ const router = createRouter({
         },
         {
           path: 'settings/chatbot',
-          name: 'chatbot-settings',
-          component: () => import('@/views/settings/ChatbotSettingsView.vue'),
-          meta: { permission: 'settings.chatbot' }
+          redirect: '/chatbot/settings'
         },
         {
           path: 'settings/accounts',
@@ -278,24 +278,40 @@ const router = createRouter({
         },
         {
           path: 'settings/data-connections',
+          redirect: '/chatbot/data-connections'
+        },
+        {
+          path: 'settings/data-connections/:id',
+          redirect: to => `/chatbot/data-connections/${to.params.id}`
+        },
+        {
+          path: 'settings/knowledge-base',
+          redirect: '/chatbot/knowledge-base'
+        },
+        {
+          path: 'settings/knowledge-base/:id',
+          redirect: to => `/chatbot/knowledge-base/${to.params.id}`
+        },
+        {
+          path: 'chatbot/data-connections',
           name: 'data-connections',
           component: () => import('@/views/settings/DataConnectionsView.vue'),
           meta: { permission: 'data_connections' }
         },
         {
-          path: 'settings/data-connections/:id',
+          path: 'chatbot/data-connections/:id',
           name: 'data-connection-detail',
           component: () => import('@/views/settings/DataConnectionDetailView.vue'),
           meta: { permission: 'data_connections' }
         },
         {
-          path: 'settings/knowledge-base',
+          path: 'chatbot/knowledge-base',
           name: 'knowledge-base',
           component: () => import('@/views/settings/KnowledgeBasesView.vue'),
           meta: { permission: 'knowledge_base' }
         },
         {
-          path: 'settings/knowledge-base/:id',
+          path: 'chatbot/knowledge-base/:id',
           name: 'knowledge-base-detail',
           component: () => import('@/views/settings/KnowledgeBaseDetailView.vue'),
           meta: { permission: 'knowledge_base' }
@@ -381,9 +397,12 @@ const navigationOrder = [
   { path: '/chat', permission: 'chat' },
   { path: '/chatbot', permission: 'settings.chatbot', childPaths: [
     { path: '/chatbot', permission: 'settings.chatbot' },
+    { path: '/chatbot/settings', permission: 'settings.chatbot' },
     { path: '/chatbot/keywords', permission: 'chatbot.keywords' },
     { path: '/chatbot/flows', permission: 'flows.chatbot' },
-    { path: '/chatbot/ai', permission: 'chatbot.ai' }
+    { path: '/chatbot/ai', permission: 'chatbot.ai' },
+    { path: '/chatbot/data-connections', permission: 'data_connections' },
+    { path: '/chatbot/knowledge-base', permission: 'knowledge_base' }
   ]},
   { path: '/chatbot/transfers', permission: 'transfers' },
   { path: '/analytics/agents', permission: 'analytics.agents' },
@@ -398,7 +417,6 @@ const navigationOrder = [
   ]},
   { path: '/settings', permission: 'settings.general', childPaths: [
     { path: '/settings', permission: 'settings.general' },
-    { path: '/settings/chatbot', permission: 'settings.chatbot' },
     { path: '/settings/accounts', permission: 'accounts' },
     { path: '/settings/canned-responses', permission: 'canned_responses' },
     { path: '/settings/contacts', permission: 'contacts' },
