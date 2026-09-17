@@ -1,0 +1,56 @@
+// Package vectorstore abstracts the external vector/DB backends an
+// organization can bring their own credentials for (Qdrant, Postgres/Supabase
+// with pgvector — more can be added later without touching callers). A Store
+// is built fresh from a models.DataConnection per use; nothing is held or
+// pooled long-term across requests, since orgs can edit or delete their
+// connection at any time.
+package vectorstore
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"github.com/shridarpatil/whatomate/internal/models"
+)
+
+// UpsertItem is one chunk being written to the vector store: its embedding
+// plus the text and metadata needed to reconstruct/display it later.
+type UpsertItem struct {
+	ID       string // VectorRef — stable so re-ingestion can overwrite in place
+	Vector   []float32
+	Content  string
+	Metadata map[string]any
+}
+
+// Store is the contract every backend implements. Search (needed for
+// chatbot retrieval) is added when that milestone is built.
+type Store interface {
+	// Ping verifies the connection is reachable and the credentials work.
+	Ping(ctx context.Context) error
+	// EnsureCollection creates the collection/table if it doesn't already
+	// exist, sized for the given embedding dimensionality.
+	EnsureCollection(ctx context.Context, collection string, dims int) error
+	// Upsert writes (or overwrites, by ID) chunk vectors into collection.
+	Upsert(ctx context.Context, collection string, items []UpsertItem) error
+	// Delete removes vectors by ID — used when a document is re-ingested or
+	// removed, so stale vectors don't linger and pollute retrieval later.
+	Delete(ctx context.Context, collection string, ids []string) error
+}
+
+// NewStore builds a Store for the given connection. conn is taken by value
+// and its secrets decrypted into a local copy — the caller's original struct
+// is never mutated, so a decrypted credential can't accidentally leak out
+// through a shared pointer.
+func NewStore(conn models.DataConnection, encryptionKey string, httpClient *http.Client) (Store, error) {
+	conn.DecryptSecrets(encryptionKey)
+
+	switch conn.Type {
+	case models.DataConnectionTypeQdrant:
+		return newQdrantStore(conn, httpClient), nil
+	case models.DataConnectionTypePostgres:
+		return newPgVectorStore(conn)
+	default:
+		return nil, fmt.Errorf("unsupported data connection type: %s", conn.Type)
+	}
+}
