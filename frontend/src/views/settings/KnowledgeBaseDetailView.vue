@@ -587,7 +587,7 @@ async function loadLinkedAIContext() {
     const linked = contexts.find(c => c.context_type === 'knowledge_base' && c.api_config?.knowledge_base_id === kb.value!.id)
     if (linked) {
       linkedContextId.value = linked.id
-      chatbotEnabled.value = !!linked.is_enabled
+      chatbotEnabled.value = !!linked.enabled
       chatbotTopK.value = linked.api_config?.top_k ?? 3
       chatbotThreshold.value = linked.api_config?.similarity_threshold ?? 0
     } else {
