@@ -13,6 +13,7 @@ import {
   type DataConnection,
   type DataConnectionType,
   type DataConnectionRequest,
+  type DataConnectionTable,
 } from '@/services/api'
 import { toast } from 'vue-sonner'
 import { getErrorMessage } from '@/lib/api-utils'
@@ -68,10 +69,74 @@ const form = ref({
   description: '',
   data_connection_id: '',
   collection_name: '',
+  content_column: '',
+  embedding_column: '',
   embedding_dims: 1536,
   chunk_size: 1000,
   chunk_overlap: 150,
   is_active: true,
+})
+
+// --- Point at an existing (already-populated) vector table instead of
+// ingesting new documents through this app — for orgs that already run
+// their own embedding pipeline elsewhere and just want the chatbot to
+// search it. Schema (table/column names) varies per org, so it's
+// discovered from their own credentials rather than hand-typed.
+const useExistingTable = ref(false)
+const existingTables = ref<DataConnectionTable[]>([])
+const isLoadingTables = ref(false)
+const tablesLoadError = ref('')
+const selectedTableName = ref('')
+const selectedEmbeddingColumn = ref('')
+
+const selectedConnection = computed(() => dataConnections.value.find(dc => dc.id === form.value.data_connection_id))
+// A KB whose column names don't match this app's own ingestion shape is
+// reading an org's externally-managed table — uploading a document through
+// this app would try to INSERT into columns that don't exist there.
+const isExternalTable = computed(() => !!kb.value && (kb.value.content_column !== 'content' || kb.value.embedding_column !== 'embedding'))
+const selectedTable = computed(() => existingTables.value.find(t => t.name === selectedTableName.value))
+const textColumnsOfSelectedTable = computed(() => (selectedTable.value?.columns || []).filter(c => !c.is_vector))
+const vectorColumnsOfSelectedTable = computed(() => (selectedTable.value?.columns || []).filter(c => c.is_vector))
+
+async function browseExistingTables() {
+  if (!form.value.data_connection_id) {
+    toast.error(t('knowledgeBase.selectDataConnectionFirst', 'Select a data connection first'))
+    return
+  }
+  isLoadingTables.value = true
+  tablesLoadError.value = ''
+  try {
+    const response = await dataConnectionsService.listTables(form.value.data_connection_id)
+    const data = (response.data as any).data || response.data
+    existingTables.value = data.tables || []
+  } catch (e) {
+    tablesLoadError.value = getErrorMessage(e, t('knowledgeBase.listTablesFailed', 'Could not read tables from this connection'))
+  } finally {
+    isLoadingTables.value = false
+  }
+}
+
+watch(selectedTableName, () => {
+  form.value.collection_name = selectedTableName.value
+  selectedEmbeddingColumn.value = vectorColumnsOfSelectedTable.value[0]?.name || ''
+  form.value.content_column = ''
+})
+
+watch(selectedEmbeddingColumn, () => {
+  form.value.embedding_column = selectedEmbeddingColumn.value
+  const col = vectorColumnsOfSelectedTable.value.find(c => c.name === selectedEmbeddingColumn.value)
+  if (col?.vector_dims) form.value.embedding_dims = col.vector_dims
+})
+
+watch(useExistingTable, (on) => {
+  if (on) {
+    form.value.collection_name = ''
+    form.value.content_column = ''
+    form.value.embedding_column = ''
+    selectedTableName.value = ''
+    selectedEmbeddingColumn.value = ''
+    if (form.value.data_connection_id) browseExistingTables()
+  }
 })
 
 let collectionNameEdited = false
@@ -222,6 +287,8 @@ async function loadKB() {
       description: found.description || '',
       data_connection_id: found.data_connection_id,
       collection_name: found.collection_name,
+      content_column: found.content_column || 'content',
+      embedding_column: found.embedding_column || 'embedding',
       embedding_dims: found.embedding_dims,
       chunk_size: found.chunk_size,
       chunk_overlap: found.chunk_overlap,
@@ -246,7 +313,20 @@ function validate(): boolean {
       toast.error(t('knowledgeBase.dataConnectionRequired'))
       return false
     }
-    if (!collectionNamePattern.test(form.value.collection_name)) {
+    if (useExistingTable.value) {
+      if (!selectedTableName.value) {
+        toast.error(t('knowledgeBase.selectTableRequired', 'Select a table'))
+        return false
+      }
+      if (!form.value.content_column) {
+        toast.error(t('knowledgeBase.selectContentColumnRequired', 'Select which column holds the text content'))
+        return false
+      }
+      if (!form.value.embedding_column) {
+        toast.error(t('knowledgeBase.selectEmbeddingColumnRequired', 'Select which column holds the embedding vector'))
+        return false
+      }
+    } else if (!collectionNamePattern.test(form.value.collection_name)) {
       toast.error(t('knowledgeBase.collectionNameInvalid'))
       return false
     }
@@ -264,6 +344,8 @@ async function save() {
         description: form.value.description.trim(),
         data_connection_id: form.value.data_connection_id,
         collection_name: form.value.collection_name,
+        content_column: useExistingTable.value ? form.value.content_column : undefined,
+        embedding_column: useExistingTable.value ? form.value.embedding_column : undefined,
         embedding_dims: form.value.embedding_dims,
         chunk_size: form.value.chunk_size,
         chunk_overlap: form.value.chunk_overlap,
@@ -635,7 +717,7 @@ onMounted(async () => {
                 </div>
                 <Input v-else :model-value="kb?.data_connection_name || ''" readonly disabled class="text-muted-foreground" />
               </div>
-              <div class="space-y-1.5">
+              <div v-if="!isNew || !useExistingTable" class="space-y-1.5">
                 <Label class="text-xs">{{ $t('knowledgeBase.collectionName') }} <span v-if="isNew" class="text-destructive">*</span></Label>
                 <Input
                   v-if="isNew"
@@ -645,10 +727,62 @@ onMounted(async () => {
                 <Input v-else :model-value="kb?.collection_name || ''" readonly disabled class="text-muted-foreground" />
               </div>
             </div>
-            <p v-if="isNew" class="text-xs text-muted-foreground -mt-2">{{ $t('knowledgeBase.collectionNameHint') }}</p>
-            <p v-else class="text-xs text-muted-foreground -mt-2">{{ $t('knowledgeBase.readOnlyFieldsHint') }}</p>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <!-- Point at an existing, already-populated vector table -->
+            <div v-if="isNew && selectedConnection?.type === 'postgres'" class="rounded-lg border border-border/60 p-3 space-y-3">
+              <div class="flex items-center gap-2">
+                <Switch v-model:checked="useExistingTable" />
+                <Label class="text-xs">{{ $t('knowledgeBase.useExistingTable', "I already have a table with embeddings — don't ingest new documents") }}</Label>
+              </div>
+
+              <div v-if="useExistingTable" class="space-y-3">
+                <div v-if="tablesLoadError" class="text-xs text-destructive">{{ tablesLoadError }}</div>
+                <div class="flex items-center gap-2">
+                  <Select v-model="selectedTableName" class="flex-1">
+                    <SelectTrigger>
+                      <SelectValue :placeholder="isLoadingTables ? $t('common.loading', 'Loading...') : $t('knowledgeBase.selectTable', 'Select a table')" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="t2 in existingTables" :key="t2.name" :value="t2.name">
+                        {{ t2.name }}<span v-if="t2.has_vector_column"> ✓ {{ $t('knowledgeBase.hasVectorColumn', 'has vector column') }}</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button type="button" variant="outline" size="sm" :disabled="isLoadingTables" @click="browseExistingTables">
+                    <Loader2 v-if="isLoadingTables" class="h-4 w-4 animate-spin" />
+                    <RotateCw v-else class="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div v-if="selectedTable" class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1.5">
+                    <Label class="text-xs">{{ $t('knowledgeBase.embeddingColumn', 'Embedding column') }} <span class="text-destructive">*</span></Label>
+                    <Select v-model="selectedEmbeddingColumn">
+                      <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="c in vectorColumnsOfSelectedTable" :key="c.name" :value="c.name">{{ c.name }} (vector{{ c.vector_dims ? `[${c.vector_dims}]` : '' }})</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p v-if="vectorColumnsOfSelectedTable.length === 0" class="text-xs text-destructive">{{ $t('knowledgeBase.noVectorColumn', 'This table has no vector column') }}</p>
+                  </div>
+                  <div class="space-y-1.5">
+                    <Label class="text-xs">{{ $t('knowledgeBase.contentColumn', 'Content column') }} <span class="text-destructive">*</span></Label>
+                    <Select v-model="form.content_column">
+                      <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="c in textColumnsOfSelectedTable" :key="c.name" :value="c.name">{{ c.name }} ({{ c.data_type }})</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <p class="text-xs text-muted-foreground">{{ $t('knowledgeBase.useExistingTableHint', 'The chatbot will search this table directly. Make sure its vectors were created with an OpenAI embedding model — a different model\'s vectors are not comparable to the ones this app generates for each customer message.') }}</p>
+              </div>
+            </div>
+
+            <p v-if="isNew && !useExistingTable" class="text-xs text-muted-foreground -mt-2">{{ $t('knowledgeBase.collectionNameHint') }}</p>
+            <p v-else-if="!isNew" class="text-xs text-muted-foreground -mt-2">{{ $t('knowledgeBase.readOnlyFieldsHint') }}</p>
+
+            <div v-if="!useExistingTable" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div class="space-y-1.5">
                 <Label class="text-xs">{{ $t('knowledgeBase.embeddingDims') }}</Label>
                 <Input v-if="isNew" v-model.number="form.embedding_dims" type="number" />
@@ -663,7 +797,7 @@ onMounted(async () => {
                 <Input v-model.number="form.chunk_overlap" type="number" />
               </div>
             </div>
-            <p class="text-xs text-muted-foreground -mt-2">{{ $t('knowledgeBase.chunkingHint') }}</p>
+            <p v-if="!useExistingTable" class="text-xs text-muted-foreground -mt-2">{{ $t('knowledgeBase.chunkingHint') }}</p>
           </CardContent>
         </Card>
 
@@ -673,7 +807,10 @@ onMounted(async () => {
             <CardTitle class="text-sm font-medium">{{ $t('knowledgeBase.documents') }} ({{ documents.length }})</CardTitle>
           </CardHeader>
           <CardContent class="space-y-4">
-            <div v-if="!hasEmbeddingsKey" class="rounded-lg border border-amber-800 bg-amber-950/30 light:border-amber-200 light:bg-amber-50 p-3 flex items-start gap-2">
+            <div v-if="isExternalTable" class="rounded-lg border border-border/60 p-3 text-sm text-muted-foreground">
+              {{ $t('knowledgeBase.externalTableHint', "This knowledge base points at your own existing table — it's managed outside Whatomate, so documents can't be uploaded here. The chatbot searches it directly.") }}
+            </div>
+            <div v-else-if="!hasEmbeddingsKey" class="rounded-lg border border-amber-800 bg-amber-950/30 light:border-amber-200 light:bg-amber-50 p-3 flex items-start gap-2">
               <AlertTriangle class="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
               <div class="text-sm">
                 <p class="text-amber-500">{{ $t('knowledgeBase.noEmbeddingsKey') }}</p>

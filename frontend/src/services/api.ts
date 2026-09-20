@@ -924,12 +924,29 @@ export interface DataConnectionRequest {
   qdrant_api_key?: string
 }
 
+export interface DataConnectionColumn {
+  name: string
+  data_type: string
+  is_vector: boolean
+  vector_dims?: number
+}
+
+export interface DataConnectionTable {
+  name: string
+  columns: DataConnectionColumn[]
+  has_vector_column: boolean
+}
+
 export const dataConnectionsService = {
   list: () => api.get<{ data_connections: DataConnection[] }>('/data-connections'),
   create: (data: DataConnectionRequest) => api.post<DataConnection>('/data-connections', data),
   update: (id: string, data: DataConnectionRequest) => api.put<DataConnection>(`/data-connections/${id}`, data),
   delete: (id: string) => api.delete(`/data-connections/${id}`),
-  test: (id: string) => api.post<{ status: DataConnectionStatus; message: string }>(`/data-connections/${id}/test`)
+  test: (id: string) => api.post<{ status: DataConnectionStatus; message: string }>(`/data-connections/${id}/test`),
+  // Read-only schema introspection (Postgres/Supabase only) — lets the
+  // Knowledge Base UI offer "point at my existing table" instead of
+  // requiring the org to hand-type exact table/column names.
+  listTables: (id: string) => api.get<{ tables: DataConnectionTable[] }>(`/data-connections/${id}/tables`)
 }
 
 // Knowledge Bases (RAG documents ingested for chatbot retrieval, over a Data Connection)
@@ -940,6 +957,8 @@ export interface KnowledgeBase {
   data_connection_id: string
   data_connection_name?: string
   collection_name: string
+  content_column: string
+  embedding_column: string
   embedding_model: string
   embedding_dims: number
   chunk_size: number
@@ -955,6 +974,8 @@ export interface KnowledgeBaseRequest {
   description?: string
   data_connection_id?: string
   collection_name?: string
+  content_column?: string
+  embedding_column?: string
   embedding_dims?: number
   chunk_size?: number
   chunk_overlap?: number

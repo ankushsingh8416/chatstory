@@ -828,6 +828,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.PUT("/api/data-connections/{id}", app.UpdateDataConnection)
 	g.DELETE("/api/data-connections/{id}", app.DeleteDataConnection)
 	g.POST("/api/data-connections/{id}/test", app.TestDataConnection)
+	g.GET("/api/data-connections/{id}/tables", app.ListDataConnectionTables)
 
 	// Knowledge Bases (RAG documents for chatbot retrieval)
 	g.GET("/api/knowledge-bases", app.ListKnowledgeBases)

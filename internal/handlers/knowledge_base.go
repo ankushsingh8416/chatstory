@@ -33,10 +33,16 @@ type KnowledgeBaseRequest struct {
 	Description      string    `json:"description"`
 	DataConnectionID uuid.UUID `json:"data_connection_id"`
 	CollectionName   string    `json:"collection_name"`
-	EmbeddingDims    int       `json:"embedding_dims"`
-	ChunkSize        int       `json:"chunk_size"`
-	ChunkOverlap     int       `json:"chunk_overlap"`
-	IsActive         *bool     `json:"is_active"`
+	// ContentColumn/EmbeddingColumn are only meaningful for Postgres
+	// connections and only need to be set when CollectionName points at an
+	// org's own pre-existing table (empty defaults to "content"/"embedding",
+	// this app's own ingestion pipeline shape).
+	ContentColumn   string `json:"content_column"`
+	EmbeddingColumn string `json:"embedding_column"`
+	EmbeddingDims   int    `json:"embedding_dims"`
+	ChunkSize       int    `json:"chunk_size"`
+	ChunkOverlap    int    `json:"chunk_overlap"`
+	IsActive        *bool  `json:"is_active"`
 }
 
 // KnowledgeBaseResponse represents a knowledge base in API responses.
@@ -47,6 +53,8 @@ type KnowledgeBaseResponse struct {
 	DataConnectionID   uuid.UUID `json:"data_connection_id"`
 	DataConnectionName string    `json:"data_connection_name,omitempty"`
 	CollectionName     string    `json:"collection_name"`
+	ContentColumn      string    `json:"content_column"`
+	EmbeddingColumn    string    `json:"embedding_column"`
 	EmbeddingModel     string    `json:"embedding_model"`
 	EmbeddingDims      int       `json:"embedding_dims"`
 	ChunkSize          int       `json:"chunk_size"`
@@ -64,6 +72,8 @@ func knowledgeBaseToResponse(kb models.KnowledgeBase) KnowledgeBaseResponse {
 		Description:      kb.Description,
 		DataConnectionID: kb.DataConnectionID,
 		CollectionName:   kb.CollectionName,
+		ContentColumn:    kb.ContentColumn,
+		EmbeddingColumn:  kb.EmbeddingColumn,
 		EmbeddingModel:   kb.EmbeddingModel,
 		EmbeddingDims:    kb.EmbeddingDims,
 		ChunkSize:        kb.ChunkSize,
@@ -195,12 +205,23 @@ func (a *App) CreateKnowledgeBase(r *fastglue.Request) error {
 		chunkOverlap = 150
 	}
 
+	contentColumn := req.ContentColumn
+	if contentColumn == "" {
+		contentColumn = "content"
+	}
+	embeddingColumn := req.EmbeddingColumn
+	if embeddingColumn == "" {
+		embeddingColumn = "embedding"
+	}
+
 	kb := models.KnowledgeBase{
 		OrganizationID:   orgID,
 		Name:             req.Name,
 		Description:      req.Description,
 		DataConnectionID: conn.ID,
 		CollectionName:   req.CollectionName,
+		ContentColumn:    contentColumn,
+		EmbeddingColumn:  embeddingColumn,
 		EmbeddingModel:   openAIEmbeddingModel,
 		EmbeddingDims:    dims,
 		ChunkSize:        chunkSize,

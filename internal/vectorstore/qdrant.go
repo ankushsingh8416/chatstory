@@ -164,7 +164,13 @@ func (q *qdrantStore) Delete(ctx context.Context, collection string, ids []strin
 
 // Search returns the topK points nearest to vector, by cosine similarity
 // (the distance metric the collection was created with in EnsureCollection).
-func (q *qdrantStore) Search(ctx context.Context, collection string, vector []float32, topK int) ([]SearchResult, error) {
+// contentColumn selects which payload field holds the text (Qdrant has no
+// "columns" — this just lets a KB pointed at a differently-shaped payload
+// still work); embeddingColumn is unused (Qdrant vectors aren't a payload field).
+func (q *qdrantStore) Search(ctx context.Context, collection string, vector []float32, topK int, contentColumn, _ string) ([]SearchResult, error) {
+	if contentColumn == "" {
+		contentColumn = "content"
+	}
 	respBody, err := q.doJSON(ctx, http.MethodPost, "/collections/"+collection+"/points/search", map[string]any{
 		"vector":       vector,
 		"limit":        topK,
@@ -187,7 +193,7 @@ func (q *qdrantStore) Search(ctx context.Context, collection string, vector []fl
 
 	results := make([]SearchResult, 0, len(parsed.Result))
 	for _, r := range parsed.Result {
-		content, _ := r.Payload["content"].(string)
+		content, _ := r.Payload[contentColumn].(string)
 		results = append(results, SearchResult{
 			ID:      fmt.Sprint(r.ID),
 			Content: content,

@@ -34,10 +34,20 @@ type KnowledgeBase struct {
 	Description      string    `gorm:"type:text" json:"description"`
 	DataConnectionID uuid.UUID `gorm:"type:uuid;index;not null" json:"data_connection_id"`
 	// CollectionName is the Qdrant collection name, or (for postgres/pgvector)
-	// the target table name — created on first ingest if it doesn't exist.
+	// the target table name — created on first ingest if it doesn't exist,
+	// unless it already exists (an org's own pre-existing vector table —
+	// see ContentColumn/EmbeddingColumn below), in which case it's used
+	// read-only and no document is ever ingested into it through this app.
 	CollectionName string `gorm:"size:255;not null" json:"collection_name"`
-	EmbeddingModel string `gorm:"size:100;default:'text-embedding-3-small'" json:"embedding_model"`
-	EmbeddingDims  int    `gorm:"default:1536" json:"embedding_dims"`
+	// ContentColumn/EmbeddingColumn name the text and vector(N) columns to
+	// use for Postgres/pgvector search. Default to "content"/"embedding" -
+	// the fixed shape this app's own ingestion pipeline creates - but are
+	// overridable when CollectionName points at an org's pre-existing table
+	// with different column names (every org's own schema differs).
+	ContentColumn   string `gorm:"size:100;default:'content'" json:"content_column"`
+	EmbeddingColumn string `gorm:"size:100;default:'embedding'" json:"embedding_column"`
+	EmbeddingModel  string `gorm:"size:100;default:'text-embedding-3-small'" json:"embedding_model"`
+	EmbeddingDims   int    `gorm:"default:1536" json:"embedding_dims"`
 	ChunkSize      int    `gorm:"default:1000" json:"chunk_size"`
 	ChunkOverlap   int    `gorm:"default:150" json:"chunk_overlap"`
 	IsActive       bool   `gorm:"default:true" json:"is_active"`

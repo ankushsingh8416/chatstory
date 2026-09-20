@@ -1014,7 +1014,7 @@ func (a *App) fetchKnowledgeBaseContext(orgID uuid.UUID, apiConfig models.JSONB,
 		return "", err
 	}
 
-	results, err := store.Search(context.Background(), kb.CollectionName, embeddings[0], topK)
+	results, err := store.Search(context.Background(), kb.CollectionName, embeddings[0], topK, kb.ContentColumn, kb.EmbeddingColumn)
 	if err != nil {
 		return "", fmt.Errorf("vector search failed: %w", err)
 	}

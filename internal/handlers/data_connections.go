@@ -301,6 +301,39 @@ func (a *App) DeleteDataConnection(r *fastglue.Request) error {
 	return r.SendEnvelope(map[string]string{"message": "Data connection deleted successfully"})
 }
 
+// ListDataConnectionTables introspects an org's own connected Postgres/
+// Supabase database (read-only) and returns its tables/columns, flagging
+// which already look like a usable vector store (a pgvector column with a
+// readable dimension) - so the Knowledge Base UI can offer "point at my
+// existing table" instead of requiring the org to hand-type exact
+// table/column names for a schema only they know.
+func (a *App) ListDataConnectionTables(r *fastglue.Request) error {
+	orgID, _, err := a.requireAuth(r, models.ResourceDataConnections, models.ActionRead)
+	if err != nil {
+		return nil
+	}
+
+	id, err := parsePathUUID(r, "id", "data connection")
+	if err != nil {
+		return nil
+	}
+
+	var conn models.DataConnection
+	if err := a.DB.Where("id = ? AND organization_id = ?", id, orgID).First(&conn).Error; err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "Data connection not found", nil, "")
+	}
+	if conn.Type != models.DataConnectionTypePostgres {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Table introspection is only available for Postgres/Supabase connections", nil, "")
+	}
+
+	tables, err := vectorstore.ListPostgresTables(conn, a.Config.App.EncryptionKey)
+	if err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, err.Error(), nil, "")
+	}
+
+	return r.SendEnvelope(map[string]any{"tables": tables})
+}
+
 // TestDataConnection attempts to connect to the external store with the
 // stored (decrypted) credentials and records the result.
 func (a *App) TestDataConnection(r *fastglue.Request) error {
