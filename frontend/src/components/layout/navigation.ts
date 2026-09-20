@@ -23,7 +23,6 @@ import {
   PhoneForwarded,
   ScrollText,
   Building2,
-  Database,
   BookOpen
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
@@ -83,7 +82,6 @@ export const navigationSections: NavSection[] = [
           { name: 'nav.keywords', path: '/chatbot/keywords', icon: Key, permission: 'chatbot.keywords' },
           { name: 'nav.flows', path: '/chatbot/flows', icon: Workflow, permission: 'flows.chatbot' },
           { name: 'nav.aiContexts', path: '/chatbot/ai', icon: Sparkles, permission: 'chatbot.ai' },
-          { name: 'nav.dataConnections', path: '/chatbot/data-connections', icon: Database, permission: 'data_connections' },
           { name: 'nav.knowledgeBase', path: '/chatbot/knowledge-base', icon: BookOpen, permission: 'knowledge_base' },
           { name: 'nav.transfers', path: '/chatbot/transfers', icon: UserX, permission: 'transfers' }
         ]

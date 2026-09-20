@@ -6,10 +6,13 @@ import {
   knowledgeBasesService,
   dataConnectionsService,
   organizationService,
+  chatbotService,
   type KnowledgeBase,
   type KBDocument,
   type KBDocumentStatus,
   type DataConnection,
+  type DataConnectionType,
+  type DataConnectionRequest,
 } from '@/services/api'
 import { toast } from 'vue-sonner'
 import { getErrorMessage } from '@/lib/api-utils'
@@ -26,6 +29,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   BookOpen,
   Trash2,
@@ -35,6 +40,8 @@ import {
   AlertTriangle,
   FileText,
   Upload,
+  Plus,
+  MessageSquare,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -115,6 +122,75 @@ async function loadDataConnections() {
   } catch {
     // Non-fatal — the select will just be empty; the create form's empty
     // state below handles "no connections yet" explicitly.
+  }
+}
+
+// --- Inline "Add Data Connection" — lets a user go from nothing to a
+// working knowledge base without leaving this page (previously required a
+// separate Data Connections page just to create the credential row first).
+const isAddConnectionDialogOpen = ref(false)
+const isCreatingConnection = ref(false)
+const connForm = ref({
+  name: '',
+  type: 'postgres' as DataConnectionType,
+  host: '',
+  port: 5432,
+  database: '',
+  username: '',
+  password: '',
+  ssl_mode: 'require',
+  qdrant_url: '',
+  qdrant_api_key: '',
+})
+
+function openAddConnectionDialog() {
+  connForm.value = { name: '', type: 'postgres', host: '', port: 5432, database: '', username: '', password: '', ssl_mode: 'require', qdrant_url: '', qdrant_api_key: '' }
+  isAddConnectionDialogOpen.value = true
+}
+
+function validateConnForm(): boolean {
+  if (!connForm.value.name.trim()) {
+    toast.error(t('dataConnections.nameRequired'))
+    return false
+  }
+  if (connForm.value.type === 'postgres') {
+    if (!connForm.value.host.trim() || !connForm.value.database.trim() || !connForm.value.username.trim() || !connForm.value.password) {
+      toast.error(t('dataConnections.allFieldsRequired', 'Host, database, username, and password are required'))
+      return false
+    }
+  } else if (!connForm.value.qdrant_url.trim()) {
+    toast.error(t('dataConnections.qdrantUrlRequired'))
+    return false
+  }
+  return true
+}
+
+async function createConnectionInline() {
+  if (!validateConnForm()) return
+  isCreatingConnection.value = true
+  try {
+    const payload: DataConnectionRequest = { name: connForm.value.name.trim(), type: connForm.value.type }
+    if (connForm.value.type === 'postgres') {
+      payload.host = connForm.value.host.trim()
+      payload.port = connForm.value.port || 5432
+      payload.database = connForm.value.database.trim()
+      payload.username = connForm.value.username.trim()
+      payload.ssl_mode = connForm.value.ssl_mode || 'require'
+      payload.password = connForm.value.password
+    } else {
+      payload.qdrant_url = connForm.value.qdrant_url.trim()
+      if (connForm.value.qdrant_api_key) payload.qdrant_api_key = connForm.value.qdrant_api_key
+    }
+    const response = await dataConnectionsService.create(payload)
+    const created = (response.data as any).data || response.data
+    dataConnections.value.push(created)
+    form.value.data_connection_id = created.id
+    toast.success(t('common.createdSuccess', { resource: t('resources.DataConnection') }))
+    isAddConnectionDialogOpen.value = false
+  } catch (e) {
+    toast.error(getErrorMessage(e, t('common.failedSave', { resource: t('resources.dataConnection') })))
+  } finally {
+    isCreatingConnection.value = false
   }
 }
 
@@ -411,6 +487,68 @@ async function confirmDeleteDocument() {
   }
 }
 
+// --- Chatbot usage — links this knowledge base into the chatbot's AI
+// response pipeline via an AIContext record (context_type=knowledge_base),
+// without the user needing to separately visit AI Contexts to wire it up.
+const linkedContextId = ref<string | null>(null)
+const chatbotEnabled = ref(false)
+const chatbotTopK = ref(3)
+const chatbotThreshold = ref(0)
+const isSavingChatbotUsage = ref(false)
+
+async function loadLinkedAIContext() {
+  if (!kb.value) return
+  try {
+    const response = await chatbotService.listAIContexts({ limit: 200 })
+    const data = (response.data as any).data || response.data
+    const contexts: any[] = data.contexts || []
+    const linked = contexts.find(c => c.context_type === 'knowledge_base' && c.api_config?.knowledge_base_id === kb.value!.id)
+    if (linked) {
+      linkedContextId.value = linked.id
+      chatbotEnabled.value = !!linked.is_enabled
+      chatbotTopK.value = linked.api_config?.top_k ?? 3
+      chatbotThreshold.value = linked.api_config?.similarity_threshold ?? 0
+    } else {
+      linkedContextId.value = null
+      chatbotEnabled.value = false
+    }
+  } catch {
+    // Non-fatal — the toggle just starts unlinked; saving still creates it fresh.
+  }
+}
+
+async function saveChatbotUsage() {
+  if (!kb.value) return
+  isSavingChatbotUsage.value = true
+  try {
+    const payload = {
+      name: `${kb.value.name} (Knowledge Base)`,
+      context_type: 'knowledge_base',
+      trigger_keywords: [],
+      static_content: '',
+      api_config: {
+        knowledge_base_id: kb.value.id,
+        top_k: chatbotTopK.value,
+        similarity_threshold: chatbotThreshold.value,
+      },
+      priority: 10,
+      enabled: chatbotEnabled.value,
+    }
+    if (linkedContextId.value) {
+      await chatbotService.updateAIContext(linkedContextId.value, payload)
+    } else {
+      const response = await chatbotService.createAIContext(payload)
+      const created = (response.data as any).data || response.data
+      linkedContextId.value = created.id
+    }
+    toast.success(t('knowledgeBase.chatbotUsageSaved', 'Chatbot usage updated'))
+  } catch (e) {
+    toast.error(getErrorMessage(e, t('common.failedSave', { resource: t('resources.AIContext', 'AI Context') })))
+  } finally {
+    isSavingChatbotUsage.value = false
+  }
+}
+
 onMounted(async () => {
   await loadDataConnections()
   await loadEmbeddingsKeyStatus()
@@ -419,6 +557,7 @@ onMounted(async () => {
     hasChanges.value = false
   } else {
     await loadKB()
+    await loadLinkedAIContext()
   }
 })
 </script>
@@ -451,9 +590,9 @@ onMounted(async () => {
         <CardContent class="py-8 text-center space-y-3">
           <AlertTriangle class="h-8 w-8 mx-auto text-amber-500" />
           <p class="text-sm text-muted-foreground">{{ $t('knowledgeBase.noDataConnectionsYet') }}</p>
-          <RouterLink to="/chatbot/data-connections/new">
-            <Button variant="outline" size="sm">{{ $t('knowledgeBase.createDataConnectionFirst') }}</Button>
-          </RouterLink>
+          <Button variant="outline" size="sm" @click="openAddConnectionDialog">
+            <Plus class="h-4 w-4 mr-1" />{{ $t('knowledgeBase.createDataConnectionFirst') }}
+          </Button>
         </CardContent>
       </Card>
 
@@ -481,14 +620,19 @@ onMounted(async () => {
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div class="space-y-1.5">
                 <Label class="text-xs">{{ $t('knowledgeBase.dataConnection') }} <span v-if="isNew" class="text-destructive">*</span></Label>
-                <Select v-if="isNew" v-model="form.data_connection_id">
-                  <SelectTrigger>
-                    <SelectValue :placeholder="$t('knowledgeBase.selectDataConnection')" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="dc in dataConnections" :key="dc.id" :value="dc.id">{{ dc.name }} ({{ dc.type }})</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div v-if="isNew" class="flex items-center gap-2">
+                  <Select v-model="form.data_connection_id" class="flex-1">
+                    <SelectTrigger>
+                      <SelectValue :placeholder="$t('knowledgeBase.selectDataConnection')" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem v-for="dc in dataConnections" :key="dc.id" :value="dc.id">{{ dc.name }} ({{ dc.type }})</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button type="button" variant="outline" size="sm" @click="openAddConnectionDialog">
+                    <Plus class="h-4 w-4" />
+                  </Button>
+                </div>
                 <Input v-else :model-value="kb?.data_connection_name || ''" readonly disabled class="text-muted-foreground" />
               </div>
               <div class="space-y-1.5">
@@ -597,6 +741,43 @@ onMounted(async () => {
             </DataTable>
           </CardContent>
         </Card>
+
+        <!-- Chatbot Usage (edit mode only) — wires this KB into chatbot AI
+             responses without needing to separately visit AI Contexts. -->
+        <Card v-if="!isNew">
+          <CardHeader class="pb-3">
+            <CardTitle class="text-sm font-medium flex items-center gap-2">
+              <MessageSquare class="h-4 w-4" />{{ $t('knowledgeBase.chatbotUsage', 'Use in Chatbot') }}
+            </CardTitle>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <p class="text-xs text-muted-foreground">{{ $t('knowledgeBase.chatbotUsageHint', "When enabled, the customer's message is matched against this knowledge base and the best-matching content is given to the AI as context.") }}</p>
+
+            <div class="flex items-center gap-2">
+              <Switch v-model:checked="chatbotEnabled" />
+              <Label class="text-xs">{{ $t('knowledgeBase.enableInChatbot', 'Enabled') }}</Label>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div class="space-y-1.5">
+                <Label class="text-xs">{{ $t('aiContexts.topK', 'Chunks to retrieve') }}</Label>
+                <Input v-model.number="chatbotTopK" type="number" min="1" max="20" />
+              </div>
+              <div class="space-y-1.5">
+                <Label class="text-xs">{{ $t('aiContexts.similarityThreshold', 'Similarity threshold') }}</Label>
+                <Input v-model.number="chatbotThreshold" type="number" min="0" max="1" step="0.05" />
+              </div>
+            </div>
+
+            <div class="flex justify-end">
+              <Button size="sm" :disabled="isSavingChatbotUsage" @click="saveChatbotUsage">
+                <Loader2 v-if="isSavingChatbotUsage" class="h-4 w-4 mr-1 animate-spin" />
+                <Save v-else class="h-4 w-4 mr-1" />
+                {{ $t('common.save') }}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </template>
 
       <template v-if="!isNew" #sidebar>
@@ -622,5 +803,78 @@ onMounted(async () => {
     />
 
     <UnsavedChangesDialog :open="showLeaveDialog" @stay="cancelLeave" @leave="confirmLeave" />
+
+    <!-- Inline Add Data Connection dialog -->
+    <Dialog v-model:open="isAddConnectionDialogOpen">
+      <DialogContent class="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{{ $t('dataConnections.newConnection') }}</DialogTitle>
+          <DialogDescription>{{ $t('knowledgeBase.addConnectionDialogHint', 'Add your database credentials once — reuse them across any knowledge base.') }}</DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+          <div class="space-y-1.5">
+            <Label class="text-xs">{{ $t('dataConnections.name') }} <span class="text-destructive">*</span></Label>
+            <Input v-model="connForm.name" :placeholder="$t('dataConnections.namePlaceholder')" />
+          </div>
+          <div class="space-y-1.5">
+            <Label class="text-xs">{{ $t('dataConnections.connectionType') }}</Label>
+            <RadioGroup v-model="connForm.type" class="flex flex-col gap-2">
+              <div class="flex items-center space-x-2">
+                <RadioGroupItem value="postgres" id="conn-type-postgres" />
+                <Label for="conn-type-postgres" class="cursor-pointer font-normal">{{ $t('dataConnections.typePostgres') }}</Label>
+              </div>
+              <div class="flex items-center space-x-2">
+                <RadioGroupItem value="qdrant" id="conn-type-qdrant" />
+                <Label for="conn-type-qdrant" class="cursor-pointer font-normal">{{ $t('dataConnections.typeQdrant') }}</Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          <template v-if="connForm.type === 'postgres'">
+            <div class="grid grid-cols-3 gap-3">
+              <div class="col-span-2 space-y-1.5">
+                <Label class="text-xs">{{ $t('dataConnections.host') }} <span class="text-destructive">*</span></Label>
+                <Input v-model="connForm.host" :placeholder="$t('dataConnections.hostPlaceholder')" />
+              </div>
+              <div class="space-y-1.5">
+                <Label class="text-xs">{{ $t('dataConnections.port') }}</Label>
+                <Input v-model.number="connForm.port" type="number" />
+              </div>
+            </div>
+            <div class="space-y-1.5">
+              <Label class="text-xs">{{ $t('dataConnections.database') }} <span class="text-destructive">*</span></Label>
+              <Input v-model="connForm.database" :placeholder="$t('dataConnections.databasePlaceholder')" />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1.5">
+                <Label class="text-xs">{{ $t('dataConnections.username') }} <span class="text-destructive">*</span></Label>
+                <Input v-model="connForm.username" />
+              </div>
+              <div class="space-y-1.5">
+                <Label class="text-xs">{{ $t('dataConnections.password') }} <span class="text-destructive">*</span></Label>
+                <Input v-model="connForm.password" type="password" />
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <div class="space-y-1.5">
+              <Label class="text-xs">{{ $t('dataConnections.qdrantUrl') }} <span class="text-destructive">*</span></Label>
+              <Input v-model="connForm.qdrant_url" :placeholder="$t('dataConnections.qdrantUrlPlaceholder')" />
+            </div>
+            <div class="space-y-1.5">
+              <Label class="text-xs">{{ $t('dataConnections.qdrantApiKey') }}</Label>
+              <Input v-model="connForm.qdrant_api_key" type="password" />
+            </div>
+          </template>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" @click="isAddConnectionDialogOpen = false">{{ $t('common.cancel') }}</Button>
+          <Button size="sm" :disabled="isCreatingConnection" @click="createConnectionInline">
+            <Loader2 v-if="isCreatingConnection" class="h-4 w-4 mr-1 animate-spin" />
+            {{ $t('common.create') }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
