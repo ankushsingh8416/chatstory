@@ -84,6 +84,15 @@ func (p *pgVectorStore) open() (*sql.DB, error) {
 		return nil, fmt.Errorf("invalid postgres connection: %w", err)
 	}
 	cfg.DialFunc = netutil.SSRFSafeDialer()
+	// Many orgs hand us their Supabase *pooled* connection string (port 6543,
+	// PgBouncer in transaction mode) rather than the direct one - pgx's
+	// default server-side prepared-statement caching then collides across
+	// pooled connections ("prepared statement already exists", since
+	// PgBouncer can hand different client sessions the same backend
+	// connection without resetting its prepared-statement state). The simple
+	// query protocol avoids server-side prepared statements entirely, which
+	// works correctly against both direct and pooled connections.
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	db := stdlib.OpenDB(*cfg)
 	// Small, short-lived pool — this is one external tenant DB, not app traffic.
