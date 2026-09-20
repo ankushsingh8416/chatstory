@@ -667,7 +667,7 @@ func (a *App) runDocumentIngestion(ctx context.Context, docID uuid.UUID) {
 		}
 		batch := chunks[start:end]
 
-		embeddings, err := a.generateOpenAIEmbeddings(embKey, batch)
+		embeddings, err := a.generateOpenAIEmbeddings(embKey, batch, kb.EmbeddingDims)
 		if err != nil {
 			fail("embedding generation failed: " + err.Error())
 			return

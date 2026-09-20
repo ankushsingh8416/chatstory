@@ -1004,7 +1004,7 @@ func (a *App) fetchKnowledgeBaseContext(orgID uuid.UUID, apiConfig models.JSONB,
 		return "", fmt.Errorf("failed to decrypt embeddings key: %w", err)
 	}
 
-	embeddings, err := a.generateOpenAIEmbeddings(embKey, []string{userMessage})
+	embeddings, err := a.generateOpenAIEmbeddings(embKey, []string{userMessage}, kb.EmbeddingDims)
 	if err != nil {
 		return "", fmt.Errorf("failed to embed query: %w", err)
 	}

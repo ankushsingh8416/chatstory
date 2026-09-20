@@ -23,7 +23,15 @@ const openAIEmbeddingBatchSize = 64
 // Callers with more than openAIEmbeddingBatchSize texts should batch
 // themselves (kept as a caller concern so partial-batch failures are
 // attributable to a specific slice of chunks).
-func (a *App) generateOpenAIEmbeddings(apiKey string, texts []string) ([][]float32, error) {
+//
+// dimensions, when > 0, is passed to OpenAI's `dimensions` parameter to
+// truncate the output (text-embedding-3-* models support this natively -
+// "Matryoshka" truncation, not a lossy resize). This matters for a
+// knowledge base pointed at an org's own pre-existing table: its vectors
+// may have been generated with a smaller dimension than this model's
+// 1536-dim default, and cosine similarity is only meaningful between
+// vectors of the same length. Pass 0 to use the model's default.
+func (a *App) generateOpenAIEmbeddings(apiKey string, texts []string, dimensions int) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
@@ -31,6 +39,9 @@ func (a *App) generateOpenAIEmbeddings(apiKey string, texts []string) ([][]float
 	payload := map[string]any{
 		"model": openAIEmbeddingModel,
 		"input": texts,
+	}
+	if dimensions > 0 {
+		payload["dimensions"] = dimensions
 	}
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
