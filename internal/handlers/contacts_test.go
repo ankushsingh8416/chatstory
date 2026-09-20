@@ -924,7 +924,7 @@ func TestApp_SendMessage(t *testing.T) {
 		adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
 		user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
 		account := createTestAccount(t, app, org.ID)
-		contact := testutil.CreateTestContactWith(t, app.DB, org.ID, testutil.WithContactAccount(account.Name))
+		contact := testutil.CreateTestContactWith(t, app.DB, org.ID, testutil.WithContactAccount(account.Name), testutil.WithLastInboundAt(time.Now()))
 
 		req := testutil.NewJSONRequest(t, map[string]any{
 			"type": "text",
@@ -1079,7 +1079,7 @@ func TestApp_SendMessage(t *testing.T) {
 		adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
 		user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
 		account := createTestAccount(t, app, org.ID)
-		contact := testutil.CreateTestContactWith(t, app.DB, org.ID, testutil.WithContactAccount(account.Name))
+		contact := testutil.CreateTestContactWith(t, app.DB, org.ID, testutil.WithContactAccount(account.Name), testutil.WithLastInboundAt(time.Now()))
 
 		// Create an original message to reply to
 		origMsg := &models.Message{
@@ -1739,4 +1739,183 @@ func TestApp_AssignContact_AssignUserFromDifferentOrg(t *testing.T) {
 	require.NoError(t, err)
 	// User from a different org should not be found
 	assert.Equal(t, fasthttp.StatusBadRequest, testutil.GetResponseStatusCode(req))
+}
+
+// --- CreateContact phone number validation ---
+//
+// Regression coverage for a real production bug: contacts created with a
+// locally-formatted phone number (missing country code, with a leading
+// trunk "0", e.g. "09801516770" instead of "919801516770") were accepted
+// and stored as-is. That number is later sent verbatim as the "to" field
+// on the WhatsApp Cloud API send-message request, which Meta rejects -
+// every send to that contact fails with "API error 100: Unsupported
+// request - method type: post", regardless of account/token health.
+
+func TestApp_CreateContact_RejectsLocalFormatPhoneNumber(t *testing.T) {
+	t.Parallel()
+
+	app := newTestApp(t)
+	org := testutil.CreateTestOrganization(t, app.DB)
+	adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+
+	req := testutil.NewJSONRequest(t, map[string]any{
+		"phone_number": "09801516770", // leading 0, no country code
+		"profile_name": "Ankush",
+	})
+	testutil.SetAuthContext(req, org.ID, user.ID)
+
+	err := app.CreateContact(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusBadRequest, testutil.GetResponseStatusCode(req))
+
+	var count int64
+	app.DB.Model(&models.Contact{}).Where("organization_id = ?", org.ID).Count(&count)
+	assert.Equal(t, int64(0), count, "malformed phone number must not be persisted")
+}
+
+func TestApp_CreateContact_AcceptsE164PhoneNumber(t *testing.T) {
+	t.Parallel()
+
+	app := newTestApp(t)
+	org := testutil.CreateTestOrganization(t, app.DB)
+	adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+
+	req := testutil.NewJSONRequest(t, map[string]any{
+		"phone_number": "919801516770",
+		"profile_name": "Ankush",
+	})
+	testutil.SetAuthContext(req, org.ID, user.ID)
+
+	err := app.CreateContact(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusOK, testutil.GetResponseStatusCode(req))
+
+	var resp struct {
+		Data handlers.ContactResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(testutil.GetResponseBody(req), &resp))
+	assert.Equal(t, "919801516770", resp.Data.PhoneNumber)
+}
+
+func TestApp_CreateContact_AcceptsPlusPrefixedPhoneNumber(t *testing.T) {
+	t.Parallel()
+
+	app := newTestApp(t)
+	org := testutil.CreateTestOrganization(t, app.DB)
+	adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+
+	req := testutil.NewJSONRequest(t, map[string]any{
+		"phone_number": "+919801516770",
+		"profile_name": "Ankush",
+	})
+	testutil.SetAuthContext(req, org.ID, user.ID)
+
+	err := app.CreateContact(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusOK, testutil.GetResponseStatusCode(req))
+
+	var resp struct {
+		Data handlers.ContactResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(testutil.GetResponseBody(req), &resp))
+	assert.Equal(t, "919801516770", resp.Data.PhoneNumber, "leading + must be stripped")
+}
+
+// --- SendMessage 24-hour window enforcement ---
+//
+// Regression coverage for the second half of the production bug: even with
+// a valid E.164 phone number, WhatsApp rejects free-form text messages sent
+// outside the 24-hour customer service window. The backend must block these
+// itself (matching what buildContactResponse already computes as
+// ServiceWindowOpen for the UI) rather than only discovering the rejection
+// after round-tripping to Meta.
+
+func TestApp_SendMessage_TextBlockedWhenNeverMessaged(t *testing.T) {
+	t.Parallel()
+	mockServer := newMockWhatsAppServer()
+	defer mockServer.close()
+
+	app := newMsgTestApp(t, mockServer)
+	org := testutil.CreateTestOrganization(t, app.DB)
+	adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+	account := createTestAccount(t, app, org.ID)
+	// No WithLastInboundAt - contact has never messaged in.
+	contact := testutil.CreateTestContactWith(t, app.DB, org.ID, testutil.WithContactAccount(account.Name))
+
+	req := testutil.NewJSONRequest(t, map[string]any{
+		"type":    "text",
+		"content": map[string]string{"body": "hi"},
+	})
+	testutil.SetAuthContext(req, org.ID, user.ID)
+	testutil.SetPathParam(req, "id", contact.ID.String())
+
+	err := app.SendMessage(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusBadRequest, testutil.GetResponseStatusCode(req))
+	assert.Empty(t, mockServer.sentMessages, "must not call Meta when the window was never open")
+
+	var count int64
+	app.DB.Model(&models.Message{}).Where("contact_id = ?", contact.ID).Count(&count)
+	assert.Equal(t, int64(0), count, "no message record should be created for a blocked send")
+}
+
+func TestApp_SendMessage_TextBlockedWhenWindowExpired(t *testing.T) {
+	t.Parallel()
+	mockServer := newMockWhatsAppServer()
+	defer mockServer.close()
+
+	app := newMsgTestApp(t, mockServer)
+	org := testutil.CreateTestOrganization(t, app.DB)
+	adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+	account := createTestAccount(t, app, org.ID)
+	contact := testutil.CreateTestContactWith(t, app.DB, org.ID, testutil.WithContactAccount(account.Name),
+		testutil.WithLastInboundAt(time.Now().Add(-25*time.Hour)))
+
+	req := testutil.NewJSONRequest(t, map[string]any{
+		"type":    "text",
+		"content": map[string]string{"body": "hi"},
+	})
+	testutil.SetAuthContext(req, org.ID, user.ID)
+	testutil.SetPathParam(req, "id", contact.ID.String())
+
+	err := app.SendMessage(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusBadRequest, testutil.GetResponseStatusCode(req))
+	assert.Empty(t, mockServer.sentMessages, "must not call Meta once the window has expired")
+}
+
+func TestApp_SendMessage_TextAllowedWhenWindowOpen(t *testing.T) {
+	t.Parallel()
+	mockServer := newMockWhatsAppServer()
+	defer mockServer.close()
+
+	app := newMsgTestApp(t, mockServer)
+	org := testutil.CreateTestOrganization(t, app.DB)
+	adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+	account := createTestAccount(t, app, org.ID)
+	contact := testutil.CreateTestContactWith(t, app.DB, org.ID, testutil.WithContactAccount(account.Name),
+		testutil.WithLastInboundAt(time.Now().Add(-1*time.Hour)))
+
+	req := testutil.NewJSONRequest(t, map[string]any{
+		"type":    "text",
+		"content": map[string]string{"body": "hi"},
+	})
+	testutil.SetAuthContext(req, org.ID, user.ID)
+	testutil.SetPathParam(req, "id", contact.ID.String())
+
+	err := app.SendMessage(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusOK, testutil.GetResponseStatusCode(req))
+
+	var resp struct {
+		Data handlers.MessageResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(testutil.GetResponseBody(req), &resp))
+	assert.Equal(t, models.MessageTypeText, resp.Data.MessageType, "window-open send must not be blocked")
 }

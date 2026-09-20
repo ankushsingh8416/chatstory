@@ -137,6 +137,9 @@ var importConfigs = map[string]ImportConfig{
 				if phone == "" {
 					return nil, fmt.Errorf("phone number is required")
 				}
+				if !isValidE164(phone) {
+					return nil, fmt.Errorf("invalid phone number %q: must be in international format with country code, digits only, no leading 0", s)
+				}
 				return phone, nil
 			},
 			"assigned_user_id": func(s string) (any, error) {

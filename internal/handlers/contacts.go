@@ -578,6 +578,21 @@ func (a *App) SendMessage(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Failed to resolve WhatsApp account", nil, "")
 	}
 
+	// WhatsApp only allows free-form (non-template) text messages inside the
+	// 24-hour customer service window, opened by the contact's last inbound
+	// message. Enforce it for agent-initiated text sends before attempting
+	// the Meta API call (and before creating a message record) instead of
+	// letting every attempt fail against Meta with a generic error. Scoped to
+	// this handler only - chatbot/SLA/API sends go through SendOutgoingMessage
+	// directly and are expected to only fire in response to (or shortly
+	// after) an inbound message, so they are not gated here.
+	if req.Type == models.MessageTypeText {
+		windowOpen := contact.LastInboundAt != nil && time.Since(*contact.LastInboundAt) < 24*time.Hour
+		if !windowOpen {
+			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "24-hour messaging window is closed: the customer must message first, or send an approved template message instead", nil, "")
+		}
+	}
+
 	// Handle reply context
 	var replyToMessage *models.Message
 	if req.ReplyToMessageID != "" {
@@ -1317,6 +1332,25 @@ func (a *App) UpdateContactTags(r *fastglue.Request) error {
 	})
 }
 
+// isValidE164 reports whether phone (already stripped of a leading "+")
+// looks like a deliverable WhatsApp "to" value: digits only, no leading
+// trunk "0" (a valid E.164 subscriber number never starts with 0 once the
+// country code is included), and a plausible overall length.
+func isValidE164(phone string) bool {
+	if len(phone) < 8 || len(phone) > 15 {
+		return false
+	}
+	if phone[0] == '0' {
+		return false
+	}
+	for _, ch := range phone {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // CreateContactRequest represents the request body for creating a contact
 type CreateContactRequest struct {
 	PhoneNumber     string         `json:"phone_number"`
@@ -1351,6 +1385,16 @@ func (a *App) CreateContact(r *fastglue.Request) error {
 	normalizedPhone := req.PhoneNumber
 	if len(normalizedPhone) > 0 && normalizedPhone[0] == '+' {
 		normalizedPhone = normalizedPhone[1:]
+	}
+
+	// WhatsApp's "to" field requires the full E.164 number without the "+"
+	// (country code + subscriber number, digits only). A number typed in
+	// local/domestic format - digits only but missing the country code, often
+	// with a leading trunk "0" - passes this far unchanged and is later sent
+	// to Meta verbatim, which Meta's Cloud API rejects. Reject that input
+	// here instead of silently storing an undeliverable number.
+	if !isValidE164(normalizedPhone) {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "phone_number must be in international format with country code (e.g. 919801516770), digits only, no leading 0", nil, "")
 	}
 
 	// Check if contact exists (including soft-deleted)

@@ -234,6 +234,14 @@ func WithPhoneNumber(phone string) ContactOption {
 	}
 }
 
+// WithLastInboundAt sets the contact's last-inbound-message timestamp, e.g.
+// to simulate an open (or closed, via a >24h-ago time) WhatsApp service window.
+func WithLastInboundAt(t time.Time) ContactOption {
+	return func(c *models.Contact) {
+		c.LastInboundAt = &t
+	}
+}
+
 // CreateTestContactWith creates a test contact with options.
 func CreateTestContactWith(t *testing.T, db *gorm.DB, orgID uuid.UUID, opts ...ContactOption) *models.Contact {
 	t.Helper()
