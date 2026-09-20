@@ -219,3 +219,42 @@ func (p *pgVectorStore) Delete(ctx context.Context, collection string, ids []str
 	}
 	return nil
 }
+
+// Search returns the topK rows nearest to vector by cosine distance
+// (pgvector's <=> operator; smaller is more similar). Score is reported as
+// 1 - distance so it reads the same way as Qdrant's cosine similarity.
+func (p *pgVectorStore) Search(ctx context.Context, collection string, vector []float32, topK int) ([]SearchResult, error) {
+	quoted, err := quoteIdentifier(collection)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := p.open()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	stmt := fmt.Sprintf(
+		`SELECT id, content, 1 - (embedding <=> $1::vector) AS score FROM %s ORDER BY embedding <=> $1::vector LIMIT $2`,
+		quoted,
+	)
+	rows, err := db.QueryContext(ctx, stmt, vectorLiteral(vector), topK)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		if err := rows.Scan(&r.ID, &r.Content, &r.Score); err != nil {
+			return nil, fmt.Errorf("failed to scan search result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}

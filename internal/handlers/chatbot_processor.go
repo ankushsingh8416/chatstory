@@ -14,7 +14,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shridarpatil/whatomate/internal/contactutil"
+	"github.com/shridarpatil/whatomate/internal/crypto"
 	"github.com/shridarpatil/whatomate/internal/models"
+	"github.com/shridarpatil/whatomate/internal/vectorstore"
 	"github.com/shridarpatil/whatomate/pkg/whatsapp"
 )
 
@@ -879,6 +881,20 @@ func (a *App) buildAIContext(orgID uuid.UUID, session *models.ChatbotSession, us
 					content = apiContent
 				}
 			}
+
+		case models.ContextTypeKnowledgeBase:
+			content = ctx.StaticContent
+
+			kbContent, err := a.fetchKnowledgeBaseContext(orgID, ctx.ApiConfig, userMessage)
+			if err != nil {
+				a.Log.Error("Failed to fetch knowledge base context", "context_name", ctx.Name, "error", err)
+			} else if kbContent != "" {
+				if content != "" {
+					content = content + "\n\nRelevant information:\n" + kbContent
+				} else {
+					content = kbContent
+				}
+			}
 		}
 
 		if content != "" {
@@ -931,6 +947,91 @@ func (a *App) fetchAPIContext(apiConfig models.JSONB, session *models.ChatbotSes
 	}
 
 	return string(respBody), nil
+}
+
+// fetchKnowledgeBaseContext embeds userMessage and searches the knowledge
+// base's connected vector store for the most relevant chunks, formatting
+// them as text for the AI's context window. Config shape (in
+// AIContext.ApiConfig, reusing the same generic JSONB field the "api"
+// context type uses for its own config):
+//
+//	{"knowledge_base_id": "<uuid>", "top_k": 3, "similarity_threshold": 0.5}
+//
+// top_k defaults to 3; similarity_threshold (0-1, cosine similarity) is
+// optional — chunks scoring below it are dropped.
+func (a *App) fetchKnowledgeBaseContext(orgID uuid.UUID, apiConfig models.JSONB, userMessage string) (string, error) {
+	if apiConfig == nil {
+		return "", fmt.Errorf("knowledge base is not configured")
+	}
+	kbIDStr, _ := apiConfig["knowledge_base_id"].(string)
+	if kbIDStr == "" {
+		return "", fmt.Errorf("knowledge_base_id is not set")
+	}
+	kbID, err := uuid.Parse(kbIDStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid knowledge_base_id: %w", err)
+	}
+
+	topK := 3
+	if v, ok := apiConfig["top_k"].(float64); ok && v > 0 {
+		topK = int(v)
+	}
+	threshold := 0.0
+	if v, ok := apiConfig["similarity_threshold"].(float64); ok {
+		threshold = v
+	}
+
+	var kb models.KnowledgeBase
+	if err := a.DB.Where("id = ? AND organization_id = ? AND is_active = ?", kbID, orgID, true).First(&kb).Error; err != nil {
+		return "", fmt.Errorf("knowledge base not found: %w", err)
+	}
+
+	var conn models.DataConnection
+	if err := a.DB.Where("id = ?", kb.DataConnectionID).First(&conn).Error; err != nil {
+		return "", fmt.Errorf("data connection not found: %w", err)
+	}
+
+	var org models.Organization
+	if err := a.DB.Where("id = ?", orgID).First(&org).Error; err != nil {
+		return "", fmt.Errorf("organization not found: %w", err)
+	}
+	embKeyEnc, _ := org.Settings["openai_embeddings_key_encrypted"].(string)
+	if embKeyEnc == "" {
+		return "", fmt.Errorf("OpenAI embeddings API key is not configured for this organization")
+	}
+	embKey, err := crypto.Decrypt(embKeyEnc, a.Config.App.EncryptionKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt embeddings key: %w", err)
+	}
+
+	embeddings, err := a.generateOpenAIEmbeddings(embKey, []string{userMessage})
+	if err != nil {
+		return "", fmt.Errorf("failed to embed query: %w", err)
+	}
+
+	store, err := vectorstore.NewStore(conn, a.Config.App.EncryptionKey, a.HTTPClient)
+	if err != nil {
+		return "", err
+	}
+
+	results, err := store.Search(context.Background(), kb.CollectionName, embeddings[0], topK)
+	if err != nil {
+		return "", fmt.Errorf("vector search failed: %w", err)
+	}
+
+	var parts []string
+	for _, r := range results {
+		if r.Score < threshold {
+			continue
+		}
+		if r.Content != "" {
+			parts = append(parts, r.Content)
+		}
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return strings.Join(parts, "\n---\n"), nil
 }
 
 // generateOpenAIResponse generates a response using OpenAI API

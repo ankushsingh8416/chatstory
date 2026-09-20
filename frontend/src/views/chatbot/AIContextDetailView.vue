@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { chatbotService } from '@/services/api'
+import { chatbotService, knowledgeBasesService, type KnowledgeBase } from '@/services/api'
 import { toast } from 'vue-sonner'
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard'
 import DetailPageLayout from '@/components/shared/DetailPageLayout.vue'
@@ -48,9 +48,24 @@ const form = ref({
   api_method: 'GET',
   api_headers: '{}',
   api_response_path: '',
+  kb_knowledge_base_id: '',
+  kb_top_k: 3,
+  kb_similarity_threshold: 0,
   priority: 10,
   enabled: true,
 })
+
+const knowledgeBases = ref<KnowledgeBase[]>([])
+
+async function loadKnowledgeBases() {
+  try {
+    const response = await knowledgeBasesService.list()
+    const data = (response.data as any).data || response.data
+    knowledgeBases.value = data.knowledge_bases || []
+  } catch {
+    // AI Contexts still usable without KB list (e.g. permission-limited user)
+  }
+}
 
 const breadcrumbs = computed(() => [
   { label: t('nav.chatbot', 'Chatbot'), href: '/chatbot' },
@@ -88,6 +103,9 @@ function syncForm(data: any) {
     api_method: data.api_config?.method || 'GET',
     api_headers: JSON.stringify(data.api_config?.headers || {}, null, 2),
     api_response_path: data.api_config?.response_path || '',
+    kb_knowledge_base_id: data.api_config?.knowledge_base_id || '',
+    kb_top_k: data.api_config?.top_k ?? 3,
+    kb_similarity_threshold: data.api_config?.similarity_threshold ?? 0,
     priority: data.priority ?? 10,
     enabled: data.enabled ?? true,
   }
@@ -123,6 +141,10 @@ function buildPayload() {
       method: form.value.api_method,
       headers,
       response_path: form.value.api_response_path,
+    } : form.value.context_type === 'knowledge_base' ? {
+      knowledge_base_id: form.value.kb_knowledge_base_id,
+      top_k: form.value.kb_top_k,
+      similarity_threshold: form.value.kb_similarity_threshold,
     } : {},
     priority: form.value.priority,
     enabled: form.value.enabled,
@@ -137,6 +159,11 @@ async function save() {
 
   if (form.value.context_type === 'api' && !form.value.api_url.trim()) {
     toast.error(t('aiContexts.enterApiUrl', 'API URL is required'))
+    return
+  }
+
+  if (form.value.context_type === 'knowledge_base' && !form.value.kb_knowledge_base_id) {
+    toast.error(t('aiContexts.selectKnowledgeBase', 'Select a knowledge base'))
     return
   }
 
@@ -172,6 +199,7 @@ async function save() {
 }
 
 onMounted(async () => {
+  loadKnowledgeBases()
   if (isNew.value) {
     isLoading.value = false
     hasChanges.value = false
@@ -224,6 +252,7 @@ onMounted(async () => {
             <SelectContent>
               <SelectItem value="static">{{ $t('aiContexts.staticContent', 'Static Content') }}</SelectItem>
               <SelectItem value="api">{{ $t('aiContexts.apiFetch', 'API Fetch') }}</SelectItem>
+              <SelectItem value="knowledge_base">{{ $t('aiContexts.knowledgeBase', 'Knowledge Base') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -314,6 +343,42 @@ onMounted(async () => {
             :placeholder="$t('aiContexts.responsePathPlaceholder', '$.data.result')"
           />
           <p class="text-xs text-muted-foreground">{{ $t('aiContexts.responsePathHint', 'JSONPath to extract from the API response') }}</p>
+        </div>
+      </CardContent>
+    </Card>
+
+    <!-- Knowledge Base Configuration Card (only for knowledge_base type) -->
+    <Card v-if="form.context_type === 'knowledge_base'">
+      <CardHeader class="pb-3">
+        <CardTitle class="text-sm font-medium">{{ $t('aiContexts.kbConfiguration', 'Knowledge Base Configuration') }}</CardTitle>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <p class="text-xs text-muted-foreground">{{ $t('aiContexts.kbConfigHint', "The customer's message is embedded and matched against this knowledge base's documents.") }}</p>
+
+        <div class="space-y-1.5">
+          <Label class="text-xs">{{ $t('aiContexts.knowledgeBase', 'Knowledge Base') }} *</Label>
+          <Select v-model="form.kb_knowledge_base_id">
+            <SelectTrigger><SelectValue :placeholder="$t('aiContexts.selectKnowledgeBase', 'Select a knowledge base')" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="kb in knowledgeBases" :key="kb.id" :value="kb.id">{{ kb.name }}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p v-if="knowledgeBases.length === 0" class="text-xs text-muted-foreground">
+            {{ $t('aiContexts.noKnowledgeBases', 'No knowledge bases yet — create one under Chatbot > Knowledge Base first.') }}
+          </p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <Label class="text-xs">{{ $t('aiContexts.topK', 'Chunks to retrieve') }}</Label>
+            <Input v-model.number="form.kb_top_k" type="number" min="1" max="20" />
+            <p class="text-xs text-muted-foreground">{{ $t('aiContexts.topKHint', 'How many matching chunks to include (1-20)') }}</p>
+          </div>
+          <div class="space-y-1.5">
+            <Label class="text-xs">{{ $t('aiContexts.similarityThreshold', 'Similarity threshold') }}</Label>
+            <Input v-model.number="form.kb_similarity_threshold" type="number" min="0" max="1" step="0.05" />
+            <p class="text-xs text-muted-foreground">{{ $t('aiContexts.similarityThresholdHint', '0-1; chunks scoring lower are dropped. 0 = no filtering.') }}</p>
+          </div>
         </div>
       </CardContent>
     </Card>

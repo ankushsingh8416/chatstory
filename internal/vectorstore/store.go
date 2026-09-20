@@ -23,8 +23,14 @@ type UpsertItem struct {
 	Metadata map[string]any
 }
 
-// Store is the contract every backend implements. Search (needed for
-// chatbot retrieval) is added when that milestone is built.
+// SearchResult is one match returned by Search, ordered by relevance.
+type SearchResult struct {
+	ID      string // VectorRef
+	Content string
+	Score   float64 // similarity score, backend-defined scale (cosine similarity: -1..1)
+}
+
+// Store is the contract every backend implements.
 type Store interface {
 	// Ping verifies the connection is reachable and the credentials work.
 	Ping(ctx context.Context) error
@@ -36,6 +42,9 @@ type Store interface {
 	// Delete removes vectors by ID — used when a document is re-ingested or
 	// removed, so stale vectors don't linger and pollute retrieval later.
 	Delete(ctx context.Context, collection string, ids []string) error
+	// Search returns the topK chunks most similar to vector, used for
+	// chatbot RAG retrieval.
+	Search(ctx context.Context, collection string, vector []float32, topK int) ([]SearchResult, error)
 }
 
 // NewStore builds a Store for the given connection. conn is taken by value

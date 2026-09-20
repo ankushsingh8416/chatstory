@@ -163,8 +163,9 @@ const (
 type ContextType string
 
 const (
-	ContextTypeStatic ContextType = "static"
-	ContextTypeAPI    ContextType = "api"
+	ContextTypeStatic        ContextType = "static"
+	ContextTypeAPI           ContextType = "api"
+	ContextTypeKnowledgeBase ContextType = "knowledge_base"
 )
 
 // InputType represents chatbot flow step input types

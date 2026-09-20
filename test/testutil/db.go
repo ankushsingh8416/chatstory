@@ -108,6 +108,11 @@ func runMigrations(db *gorm.DB) error {
 		&models.ChatbotSessionMessage{},
 		&models.AIContext{},
 		&models.AgentTransfer{},
+		// Data connections / knowledge base (RAG)
+		&models.DataConnection{},
+		&models.KnowledgeBase{},
+		&models.Document{},
+		&models.DocumentChunk{},
 		// Bulk message models
 		&models.BulkMessageCampaign{},
 		&models.BulkMessageRecipient{},
@@ -155,6 +160,10 @@ func cleanupTables(db *gorm.DB) {
 		"chatbot_settings",
 		"ai_contexts",
 		"agent_transfers",
+		"document_chunks",
+		"documents",
+		"knowledge_bases",
+		"data_connections",
 		// WhatsApp tables
 		"messages",
 		"tags",
@@ -202,6 +211,10 @@ func TruncateTables(db *gorm.DB) {
 		"chatbot_settings",
 		"ai_contexts",
 		"agent_transfers",
+		"document_chunks",
+		"documents",
+		"knowledge_bases",
+		"data_connections",
 		"messages",
 		"tags",
 		"contacts",

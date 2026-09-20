@@ -161,3 +161,38 @@ func (q *qdrantStore) Delete(ctx context.Context, collection string, ids []strin
 	})
 	return err
 }
+
+// Search returns the topK points nearest to vector, by cosine similarity
+// (the distance metric the collection was created with in EnsureCollection).
+func (q *qdrantStore) Search(ctx context.Context, collection string, vector []float32, topK int) ([]SearchResult, error) {
+	respBody, err := q.doJSON(ctx, http.MethodPost, "/collections/"+collection+"/points/search", map[string]any{
+		"vector":       vector,
+		"limit":        topK,
+		"with_payload": true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed struct {
+		Result []struct {
+			ID      any            `json:"id"`
+			Score   float64        `json:"score"`
+			Payload map[string]any `json:"payload"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse search response: %w", err)
+	}
+
+	results := make([]SearchResult, 0, len(parsed.Result))
+	for _, r := range parsed.Result {
+		content, _ := r.Payload["content"].(string)
+		results = append(results, SearchResult{
+			ID:      fmt.Sprint(r.ID),
+			Content: content,
+			Score:   r.Score,
+		})
+	}
+	return results, nil
+}

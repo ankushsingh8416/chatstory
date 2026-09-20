@@ -53,6 +53,62 @@ func createProcessorTestOrg(t *testing.T, app *App) (*models.Organization, *mode
 }
 
 // =============================================================================
+// fetchKnowledgeBaseContext
+// =============================================================================
+
+func TestFetchKnowledgeBaseContext_MissingKnowledgeBaseID(t *testing.T) {
+	app := newProcessorTestApp(t)
+	org, _ := createProcessorTestOrg(t, app)
+
+	_, err := app.fetchKnowledgeBaseContext(org.ID, models.JSONB{}, "hello")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "knowledge_base_id")
+}
+
+func TestFetchKnowledgeBaseContext_UnknownKnowledgeBaseID(t *testing.T) {
+	app := newProcessorTestApp(t)
+	org, _ := createProcessorTestOrg(t, app)
+
+	_, err := app.fetchKnowledgeBaseContext(org.ID, models.JSONB{
+		"knowledge_base_id": uuid.New().String(),
+	}, "hello")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "knowledge base not found")
+}
+
+func TestFetchKnowledgeBaseContext_MissingEmbeddingsKey(t *testing.T) {
+	app := newProcessorTestApp(t)
+	org, _ := createProcessorTestOrg(t, app)
+
+	conn := models.DataConnection{
+		BaseModel:      models.BaseModel{ID: uuid.New()},
+		OrganizationID: org.ID,
+		Name:           "test-conn",
+		Type:           models.DataConnectionTypeQdrant,
+		QdrantURL:      "http://localhost:6333",
+	}
+	require.NoError(t, app.DB.Create(&conn).Error)
+
+	kb := models.KnowledgeBase{
+		BaseModel:        models.BaseModel{ID: uuid.New()},
+		OrganizationID:   org.ID,
+		Name:             "test-kb",
+		DataConnectionID: conn.ID,
+		CollectionName:   "test_collection",
+		EmbeddingDims:    1536,
+		IsActive:         true,
+	}
+	require.NoError(t, app.DB.Create(&kb).Error)
+
+	// Org has no openai_embeddings_key_encrypted set.
+	_, err := app.fetchKnowledgeBaseContext(org.ID, models.JSONB{
+		"knowledge_base_id": kb.ID.String(),
+	}, "hello")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embeddings API key is not configured")
+}
+
+// =============================================================================
 // matchKeywordRules
 // =============================================================================
 
