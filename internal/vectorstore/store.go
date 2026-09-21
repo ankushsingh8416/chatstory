@@ -43,11 +43,13 @@ type Store interface {
 	// removed, so stale vectors don't linger and pollute retrieval later.
 	Delete(ctx context.Context, collection string, ids []string) error
 	// Search returns the topK chunks most similar to vector, used for
-	// chatbot RAG retrieval. contentColumn/embeddingColumn name the text and
+	// chatbot RAG retrieval. contentColumns/embeddingColumn name the text and
 	// vector columns to read (Postgres only — an org's pre-existing table
-	// may not use this app's default "content"/"embedding" names); pass ""
-	// for both to use the default.
-	Search(ctx context.Context, collection string, vector []float32, topK int, contentColumn, embeddingColumn string) ([]SearchResult, error)
+	// may not use this app's default "content"/"embedding" names). Passing
+	// more than one contentColumns entry concatenates them (Postgres only —
+	// e.g. a title column plus a body column read as one combined chunk of
+	// text); pass nil/empty for both to use the default.
+	Search(ctx context.Context, collection string, vector []float32, topK int, contentColumns []string, embeddingColumn string) ([]SearchResult, error)
 }
 
 // NewStore builds a Store for the given connection. conn is taken by value

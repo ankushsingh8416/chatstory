@@ -856,5 +856,17 @@ func TestFormatForWhatsApp(t *testing.T) {
 }
 
 // =============================================================================
+// splitColumnList
+// =============================================================================
+
+func TestSplitColumnList(t *testing.T) {
+	assert.Equal(t, []string{"content"}, splitColumnList("content"))
+	assert.Equal(t, []string{"title", "chunk_text"}, splitColumnList("title,chunk_text"))
+	assert.Equal(t, []string{"title", "chunk_text"}, splitColumnList(" title , chunk_text "))
+	assert.Equal(t, []string{}, splitColumnList(""))
+	assert.Equal(t, []string{"a", "b"}, splitColumnList("a,,b"))
+}
+
+// =============================================================================
 // evaluateExpression (package-level, not on App)
 // =============================================================================

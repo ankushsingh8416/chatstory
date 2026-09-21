@@ -981,6 +981,21 @@ func (a *App) fetchAPIContext(apiConfig models.JSONB, session *models.ChatbotSes
 	return string(respBody), nil
 }
 
+// splitColumnList splits a stored ContentColumn value — a single column
+// name, or several comma-separated names when a knowledge base table's
+// "content" is assembled from more than one text column (e.g. title +
+// body) — into the column list vectorstore.Store.Search expects.
+func splitColumnList(s string) []string {
+	parts := strings.Split(s, ",")
+	cols := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			cols = append(cols, p)
+		}
+	}
+	return cols
+}
+
 // fetchKnowledgeBaseContext embeds userMessage and searches the knowledge
 // base's connected vector store for the most relevant chunks, formatting
 // them as text for the AI's context window. Config shape (in
@@ -1050,8 +1065,12 @@ func (a *App) fetchKnowledgeBaseContext(orgID uuid.UUID, apiConfig models.JSONB,
 	// spread across several existing vector tables — see
 	// models.KnowledgeBase.ExtraTables), then merge and re-rank by score so
 	// the final top_k is chosen across all tables together, not per table.
-	targets := []struct{ collection, contentColumn, embeddingColumn string }{
-		{kb.CollectionName, kb.ContentColumn, kb.EmbeddingColumn},
+	targets := []struct {
+		collection      string
+		contentColumns  []string
+		embeddingColumn string
+	}{
+		{kb.CollectionName, splitColumnList(kb.ContentColumn), kb.EmbeddingColumn},
 	}
 	for _, raw := range kb.ExtraTables {
 		m, ok := raw.(map[string]any)
@@ -1064,14 +1083,18 @@ func (a *App) fetchKnowledgeBaseContext(orgID uuid.UUID, apiConfig models.JSONB,
 		}
 		contentColumn, _ := m["content_column"].(string)
 		embeddingColumn, _ := m["embedding_column"].(string)
-		targets = append(targets, struct{ collection, contentColumn, embeddingColumn string }{table, contentColumn, embeddingColumn})
+		targets = append(targets, struct {
+			collection      string
+			contentColumns  []string
+			embeddingColumn string
+		}{table, splitColumnList(contentColumn), embeddingColumn})
 	}
 
 	var allResults []vectorstore.SearchResult
 	var firstErr error
 	succeeded := 0
 	for _, t := range targets {
-		results, err := store.Search(context.Background(), t.collection, embeddings[0], topK, t.contentColumn, t.embeddingColumn)
+		results, err := store.Search(context.Background(), t.collection, embeddings[0], topK, t.contentColumns, t.embeddingColumn)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err

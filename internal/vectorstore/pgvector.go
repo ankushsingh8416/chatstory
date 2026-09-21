@@ -337,12 +337,15 @@ func ListPostgresTables(conn models.DataConnection, encryptionKey string) ([]Tab
 // Search returns the topK rows nearest to vector by cosine distance
 // (pgvector's <=> operator; smaller is more similar). Score is reported as
 // 1 - distance so it reads the same way as Qdrant's cosine similarity.
-// contentColumn/embeddingColumn default to "content"/"embedding" (this
+// contentColumns/embeddingColumn default to ["content"]/"embedding" (this
 // app's own ingestion pipeline shape) when empty, but can name any text +
-// vector(N) column pair — e.g. an org's own pre-existing table.
-func (p *pgVectorStore) Search(ctx context.Context, collection string, vector []float32, topK int, contentColumn, embeddingColumn string) ([]SearchResult, error) {
-	if contentColumn == "" {
-		contentColumn = "content"
+// vector(N) column pair — e.g. an org's own pre-existing table. More than
+// one contentColumns entry is concatenated (via CONCAT_WS, so a NULL column
+// on some rows doesn't leave stray separators) into a single returned chunk
+// of text — e.g. a title column plus a body column.
+func (p *pgVectorStore) Search(ctx context.Context, collection string, vector []float32, topK int, contentColumns []string, embeddingColumn string) ([]SearchResult, error) {
+	if len(contentColumns) == 0 {
+		contentColumns = []string{"content"}
 	}
 	if embeddingColumn == "" {
 		embeddingColumn = "embedding"
@@ -351,9 +354,17 @@ func (p *pgVectorStore) Search(ctx context.Context, collection string, vector []
 	if err != nil {
 		return nil, err
 	}
-	quotedContent, err := quoteIdentifier(contentColumn)
-	if err != nil {
-		return nil, err
+	quotedContentCols := make([]string, len(contentColumns))
+	for i, c := range contentColumns {
+		qc, err := quoteIdentifier(strings.TrimSpace(c))
+		if err != nil {
+			return nil, err
+		}
+		quotedContentCols[i] = qc
+	}
+	contentExpr := quotedContentCols[0]
+	if len(quotedContentCols) > 1 {
+		contentExpr = fmt.Sprintf("CONCAT_WS(' - ', %s)", strings.Join(quotedContentCols, ", "))
 	}
 	quotedEmbedding, err := quoteIdentifier(embeddingColumn)
 	if err != nil {
@@ -371,7 +382,7 @@ func (p *pgVectorStore) Search(ctx context.Context, collection string, vector []
 
 	stmt := fmt.Sprintf(
 		`SELECT %s, 1 - (%s <=> $1::vector) AS score FROM %s ORDER BY %s <=> $1::vector LIMIT $2`,
-		quotedContent, quotedEmbedding, quoted, quotedEmbedding,
+		contentExpr, quotedEmbedding, quoted, quotedEmbedding,
 	)
 	rows, err := db.QueryContext(ctx, stmt, vectorLiteral(vector), topK)
 	if err != nil {

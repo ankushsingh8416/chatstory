@@ -98,7 +98,10 @@ const tablePickerOpen = ref(false)
 // table keeps its own content/embedding column choice since schemas can
 // differ table to table.
 const selectedTableNames = ref<string[]>([])
-const tableColumns = ref<Record<string, { content_column: string; embedding_column: string }>>({})
+// content_columns supports picking more than one text column per table
+// (concatenated at query time) — e.g. a title column plus a body column —
+// since a single table's "content" isn't always one column.
+const tableColumns = ref<Record<string, { content_columns: string[]; embedding_column: string }>>({})
 
 const selectedConnection = computed(() => dataConnections.value.find(dc => dc.id === form.value.data_connection_id))
 // A KB whose column names don't match this app's own ingestion shape is
@@ -119,9 +122,27 @@ function vectorColumnsOf(tableName: string) {
 function textColumnsOf(tableName: string) {
   return (existingTables.value.find(t => t.name === tableName)?.columns || []).filter(c => !c.is_vector)
 }
-function setTableColumn(tableName: string, key: 'content_column' | 'embedding_column', value: string) {
-  const current = tableColumns.value[tableName] || { content_column: '', embedding_column: '' }
-  tableColumns.value = { ...tableColumns.value, [tableName]: { ...current, [key]: value } }
+function setEmbeddingColumn(tableName: string, value: string) {
+  const current = tableColumns.value[tableName] || { content_columns: [], embedding_column: '' }
+  tableColumns.value = { ...tableColumns.value, [tableName]: { ...current, embedding_column: value } }
+}
+function toggleContentColumn(tableName: string, columnName: string, checked: boolean) {
+  const current = tableColumns.value[tableName] || { content_columns: [], embedding_column: '' }
+  const cols = checked
+    ? [...current.content_columns, columnName]
+    : current.content_columns.filter(c => c !== columnName)
+  tableColumns.value = { ...tableColumns.value, [tableName]: { ...current, content_columns: cols } }
+}
+function allTextColumnsSelected(tableName: string): boolean {
+  const textCols = textColumnsOf(tableName)
+  const selected = tableColumns.value[tableName]?.content_columns || []
+  return textCols.length > 0 && textCols.every(c => selected.includes(c.name))
+}
+function toggleAllContentColumns(tableName: string) {
+  const current = tableColumns.value[tableName] || { content_columns: [], embedding_column: '' }
+  const textCols = textColumnsOf(tableName)
+  const nextCols = allTextColumnsSelected(tableName) ? [] : textCols.map(c => c.name)
+  tableColumns.value = { ...tableColumns.value, [tableName]: { ...current, content_columns: nextCols } }
 }
 // The first selected table sets the KB's embedding_dims; a later table
 // whose vector column has a different size can't be meaningfully compared
@@ -143,7 +164,7 @@ function toggleTable(tableName: string, checked: boolean) {
       ...tableColumns.value,
       [tableName]: {
         embedding_column: vectorCols[0]?.name || '',
-        content_column: textCols.length === 1 ? textCols[0].name : '',
+        content_columns: textCols.length === 1 ? [textCols[0].name] : [],
       },
     }
     if (selectedTableNames.value.length === 1) {
@@ -376,8 +397,8 @@ function validate(): boolean {
       }
       for (const name of selectedTableNames.value) {
         const cols = tableColumns.value[name]
-        if (!cols?.content_column) {
-          toast.error(`${t('knowledgeBase.selectContentColumnRequired', 'Select which column holds the text content')} (${name})`)
+        if (!cols?.content_columns?.length) {
+          toast.error(`${t('knowledgeBase.selectContentColumnRequired', 'Select which column(s) hold the text content')} (${name})`)
           return false
         }
         if (!cols?.embedding_column) {
@@ -407,13 +428,13 @@ async function save() {
       if (useExistingTable.value) {
         const [primaryTable, ...restTables] = selectedTableNames.value
         collectionName = primaryTable
-        contentColumn = tableColumns.value[primaryTable].content_column
+        contentColumn = tableColumns.value[primaryTable].content_columns.join(',')
         embeddingColumn = tableColumns.value[primaryTable].embedding_column
         const primaryDims = vectorColumnsOf(primaryTable).find(c => c.name === embeddingColumn)?.vector_dims
         if (primaryDims) embeddingDims = primaryDims
         extraTables = restTables.map(name => ({
           table: name,
-          content_column: tableColumns.value[name].content_column,
+          content_column: tableColumns.value[name].content_columns.join(','),
           embedding_column: tableColumns.value[name].embedding_column,
         }))
       }
@@ -861,27 +882,41 @@ onMounted(async () => {
                   </Button>
                 </div>
 
-                <div v-for="t2 in selectedTables" :key="t2.name" class="rounded-md border border-border/50 p-2.5 space-y-2">
+                <div v-for="t2 in selectedTables" :key="t2.name" class="rounded-md border border-border/50 p-2.5 space-y-3">
                   <p class="text-xs font-medium">{{ t2.name }}</p>
-                  <div class="grid grid-cols-2 gap-3">
-                    <div class="space-y-1.5">
-                      <Label class="text-xs">{{ $t('knowledgeBase.embeddingColumn', 'Embedding column') }} <span class="text-destructive">*</span></Label>
-                      <Select :model-value="tableColumns[t2.name]?.embedding_column" @update:model-value="(v) => setTableColumn(t2.name, 'embedding_column', String(v))">
-                        <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem v-for="c in vectorColumnsOf(t2.name)" :key="c.name" :value="c.name">{{ c.name }} (vector{{ c.vector_dims ? `[${c.vector_dims}]` : '' }})</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  <div class="space-y-1.5">
+                    <Label class="text-xs">{{ $t('knowledgeBase.embeddingColumn', 'Embedding column') }} <span class="text-destructive">*</span></Label>
+                    <Select :model-value="tableColumns[t2.name]?.embedding_column" @update:model-value="(v) => setEmbeddingColumn(t2.name, String(v))">
+                      <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem v-for="c in vectorColumnsOf(t2.name)" :key="c.name" :value="c.name">{{ c.name }} (vector{{ c.vector_dims ? `[${c.vector_dims}]` : '' }})</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p class="text-xs text-muted-foreground">{{ $t('knowledgeBase.embeddingColumnSingleHint', 'Only one — the search ranks results by this single vector column.') }}</p>
+                  </div>
+                  <div class="space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <Label class="text-xs">{{ $t('knowledgeBase.contentColumn', 'Content column(s)') }} <span class="text-destructive">*</span></Label>
+                      <Button type="button" variant="ghost" size="sm" class="h-6 px-2 text-xs" @click="toggleAllContentColumns(t2.name)">
+                        {{ allTextColumnsSelected(t2.name) ? $t('common.deselectAll', 'Deselect all') : $t('common.selectAll', 'Select all') }}
+                      </Button>
                     </div>
-                    <div class="space-y-1.5">
-                      <Label class="text-xs">{{ $t('knowledgeBase.contentColumn', 'Content column') }} <span class="text-destructive">*</span></Label>
-                      <Select :model-value="tableColumns[t2.name]?.content_column" @update:model-value="(v) => setTableColumn(t2.name, 'content_column', String(v))">
-                        <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem v-for="c in textColumnsOf(t2.name)" :key="c.name" :value="c.name">{{ c.name }} ({{ c.data_type }})</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <div class="rounded-md border border-input max-h-40 overflow-y-auto p-1">
+                      <div v-if="textColumnsOf(t2.name).length === 0" class="p-2 text-xs text-muted-foreground">{{ $t('knowledgeBase.noTextColumns', 'No text columns found') }}</div>
+                      <label
+                        v-for="c in textColumnsOf(t2.name)"
+                        :key="c.name"
+                        class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent"
+                      >
+                        <Checkbox
+                          :checked="(tableColumns[t2.name]?.content_columns || []).includes(c.name)"
+                          @update:checked="(v) => toggleContentColumn(t2.name, c.name, !!v)"
+                        />
+                        <span class="flex-1 truncate">{{ c.name }}</span>
+                        <span class="text-xs text-muted-foreground">{{ c.data_type }}</span>
+                      </label>
                     </div>
+                    <p class="text-xs text-muted-foreground">{{ $t('knowledgeBase.contentColumnMultiHint', "Pick more than one to combine them (e.g. title + body) into the text the chatbot reads.") }}</p>
                   </div>
                   <p v-if="tableDimsMismatch(t2.name)" class="text-xs text-amber-500">{{ $t('knowledgeBase.dimsMismatchWarning', "This table's vector size differs from the first selected table, so it will be skipped when the chatbot searches.") }}</p>
                 </div>
