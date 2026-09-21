@@ -430,6 +430,35 @@ func (c *Client) MarkMessageRead(ctx context.Context, account *Account, messageI
 	return nil
 }
 
+// SendTypingIndicator marks an incoming message as read and shows the
+// "typing…" bubble in the customer's chat for up to ~25 seconds, or until
+// the next message is sent to them, whichever comes first. Meta combines
+// this with the read receipt in a single call — there is no separate
+// "typing on" request, and no way to turn it off early other than sending
+// the reply. Intended for use right before a possibly-slow AI/RAG response
+// is generated, so the customer sees something other than a static screen.
+func (c *Client) SendTypingIndicator(ctx context.Context, account *Account, messageID string) error {
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"status":            "read",
+		"message_id":        messageID,
+		"typing_indicator": map[string]any{
+			"type": "text",
+		},
+	}
+
+	url := c.buildMessagesURL(account)
+	c.Log.Debug("Sending typing indicator", "message_id", messageID)
+
+	_, err := c.doRequest(ctx, "POST", url, payload, account.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to send typing indicator: %w", err)
+	}
+
+	c.Log.Debug("Typing indicator sent", "message_id", messageID)
+	return nil
+}
+
 // ResumableUploadResponse represents response from creating upload session
 type ResumableUploadResponse struct {
 	ID string `json:"id"` // Upload session ID

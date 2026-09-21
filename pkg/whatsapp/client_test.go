@@ -395,6 +395,73 @@ func TestClient_MarkMessageRead(t *testing.T) {
 	}
 }
 
+func TestClient_SendTypingIndicator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		messageID      string
+		serverResponse func(t *testing.T, w http.ResponseWriter, r *http.Request)
+		wantErr        bool
+	}{
+		{
+			name:      "successful typing indicator",
+			messageID: "wamid.test123",
+			serverResponse: func(t *testing.T, w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodPost, r.Method)
+
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				assert.Equal(t, "read", body["status"])
+				assert.Equal(t, "wamid.test123", body["message_id"])
+				typingIndicator, _ := body["typing_indicator"].(map[string]any)
+				assert.Equal(t, "text", typingIndicator["type"])
+
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(map[string]bool{"success": true})
+			},
+			wantErr: false,
+		},
+		{
+			name:      "message not found",
+			messageID: "wamid.invalid",
+			serverResponse: func(t *testing.T, w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tt.serverResponse(t, w, r)
+			}))
+			defer server.Close()
+
+			log := testutil.NopLogger()
+			client := whatsapp.NewWithTimeout(log, 5*time.Second)
+			client.HTTPClient = &http.Client{
+				Transport: &testServerTransport{serverURL: server.URL},
+			}
+
+			account := testAccount(server.URL)
+			ctx := testutil.TestContext(t)
+
+			err := client.SendTypingIndicator(ctx, account, tt.messageID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestClient_SendImageMessage(t *testing.T) {
 	t.Parallel()
 

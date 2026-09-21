@@ -368,6 +368,13 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 
 	// If no keyword matched, try AI response if enabled
 	if settings.AI.Enabled && settings.AI.Provider != "" && settings.AI.APIKey != "" {
+		// Show WhatsApp's "typing…" indicator while the (possibly slow, e.g.
+		// RAG-backed) AI response is generated — best-effort, a failure here
+		// shouldn't block the actual response.
+		if err := a.WhatsApp.SendTypingIndicator(context.Background(), a.toWhatsAppAccount(account), msg.ID); err != nil {
+			a.Log.Warn("Failed to send typing indicator", "error", err, "contact", contact.PhoneNumber)
+		}
+
 		a.Log.Info("Attempting AI response", "provider", settings.AI.Provider, "model", settings.AI.Model)
 		aiResponse, err := a.generateAIResponse(settings, session, messageText)
 		if err != nil {
