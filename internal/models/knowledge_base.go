@@ -46,11 +46,19 @@ type KnowledgeBase struct {
 	// with different column names (every org's own schema differs).
 	ContentColumn   string `gorm:"size:100;default:'content'" json:"content_column"`
 	EmbeddingColumn string `gorm:"size:100;default:'embedding'" json:"embedding_column"`
-	EmbeddingModel  string `gorm:"size:100;default:'text-embedding-3-small'" json:"embedding_model"`
-	EmbeddingDims   int    `gorm:"default:1536" json:"embedding_dims"`
-	ChunkSize      int    `gorm:"default:1000" json:"chunk_size"`
-	ChunkOverlap   int    `gorm:"default:150" json:"chunk_overlap"`
-	IsActive       bool   `gorm:"default:true" json:"is_active"`
+	// ExtraTables lists additional existing tables (beyond CollectionName)
+	// to search alongside the primary one, for orgs whose data is spread
+	// across several vector tables (e.g. blog posts in one, products in
+	// another). Each entry: {"table", "content_column", "embedding_column"}.
+	// Only meaningful when CollectionName points at a pre-existing table
+	// (the "use existing table(s)" flow) — self-managed/ingested knowledge
+	// bases always have exactly one table (CollectionName) and this is empty.
+	ExtraTables    JSONBArray `gorm:"type:jsonb;default:'[]'" json:"extra_tables"`
+	EmbeddingModel string     `gorm:"size:100;default:'text-embedding-3-small'" json:"embedding_model"`
+	EmbeddingDims  int        `gorm:"default:1536" json:"embedding_dims"`
+	ChunkSize      int        `gorm:"default:1000" json:"chunk_size"`
+	ChunkOverlap   int        `gorm:"default:150" json:"chunk_overlap"`
+	IsActive       bool       `gorm:"default:true" json:"is_active"`
 
 	CreatedByID *uuid.UUID `gorm:"type:uuid" json:"created_by_id,omitempty"`
 

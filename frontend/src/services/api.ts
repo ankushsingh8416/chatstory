@@ -949,6 +949,15 @@ export const dataConnectionsService = {
   listTables: (id: string) => api.get<{ tables: DataConnectionTable[] }>(`/data-connections/${id}/tables`)
 }
 
+// One additional existing table (beyond the primary collection_name) a
+// knowledge base searches — for orgs whose data is spread across several
+// vector tables (e.g. blog posts in one, products in another).
+export interface KBTableRef {
+  table: string
+  content_column: string
+  embedding_column: string
+}
+
 // Knowledge Bases (RAG documents ingested for chatbot retrieval, over a Data Connection)
 export interface KnowledgeBase {
   id: string
@@ -959,6 +968,7 @@ export interface KnowledgeBase {
   collection_name: string
   content_column: string
   embedding_column: string
+  extra_tables: KBTableRef[]
   embedding_model: string
   embedding_dims: number
   chunk_size: number
@@ -976,6 +986,7 @@ export interface KnowledgeBaseRequest {
   collection_name?: string
   content_column?: string
   embedding_column?: string
+  extra_tables?: KBTableRef[]
   embedding_dims?: number
   chunk_size?: number
   chunk_overlap?: number

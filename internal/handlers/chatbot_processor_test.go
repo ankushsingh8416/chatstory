@@ -797,5 +797,64 @@ func TestMatchFlowTrigger_Match(t *testing.T) {
 }
 
 // =============================================================================
+// formatForWhatsApp
+// =============================================================================
+
+func TestFormatForWhatsApp(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "double-asterisk bold becomes single-asterisk bold",
+			in:   "**Flagship Office Project:** Max Estates has opened its flagship office.",
+			want: "*Flagship Office Project:* Max Estates has opened its flagship office.",
+		},
+		{
+			name: "underscore bold becomes single-asterisk bold",
+			in:   "__Flagship Office Project:__ details",
+			want: "*Flagship Office Project:* details",
+		},
+		{
+			name: "already-correct single-asterisk bold is left alone",
+			in:   "*already bold*, nothing to do",
+			want: "*already bold*, nothing to do",
+		},
+		{
+			name: "markdown header becomes a bold line without the hashes",
+			in:   "## The Terraces\nRevenue target: Rs 1,200 crore",
+			want: "*The Terraces*\nRevenue target: Rs 1,200 crore",
+		},
+		{
+			name: "markdown bullets become a plain bullet character",
+			in:   "- The Terraces\n* Max Square\n+ Max House",
+			want: "• The Terraces\n• Max Square\n• Max House",
+		},
+		{
+			name: "numbered list with bold header, the reported case",
+			in:   "1. **The Terraces:** launched in Gurugram\n2. **Max Square:** Adobe leased 1.58 lakh sq ft",
+			want: "1. *The Terraces:* launched in Gurugram\n2. *Max Square:* Adobe leased 1.58 lakh sq ft",
+		},
+		{
+			name: "empty string stays empty",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "plain text without markdown is unchanged",
+			in:   "Hello, how can I help you today?",
+			want: "Hello, how can I help you today?",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatForWhatsApp(tt.in))
+		})
+	}
+}
+
+// =============================================================================
 // evaluateExpression (package-level, not on App)
 // =============================================================================

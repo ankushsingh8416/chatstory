@@ -27,6 +27,16 @@ func validCollectionName(name string) bool {
 	return validCollectionNameRe.MatchString(name)
 }
 
+// KBTableRef names one existing vector table and its column mapping — used
+// both for the primary table (CollectionName/ContentColumn/EmbeddingColumn)
+// and for each entry of ExtraTables, when a knowledge base searches across
+// several of an org's own pre-existing tables at once.
+type KBTableRef struct {
+	Table           string `json:"table"`
+	ContentColumn   string `json:"content_column"`
+	EmbeddingColumn string `json:"embedding_column"`
+}
+
 // KnowledgeBaseRequest represents the request body for creating/editing a knowledge base.
 type KnowledgeBaseRequest struct {
 	Name             string    `json:"name"`
@@ -39,30 +49,88 @@ type KnowledgeBaseRequest struct {
 	// this app's own ingestion pipeline shape).
 	ContentColumn   string `json:"content_column"`
 	EmbeddingColumn string `json:"embedding_column"`
-	EmbeddingDims   int    `json:"embedding_dims"`
-	ChunkSize       int    `json:"chunk_size"`
-	ChunkOverlap    int    `json:"chunk_overlap"`
-	IsActive        *bool  `json:"is_active"`
+	// ExtraTables lists additional existing tables to search alongside
+	// CollectionName — see models.KnowledgeBase.ExtraTables.
+	ExtraTables   []KBTableRef `json:"extra_tables"`
+	EmbeddingDims int          `json:"embedding_dims"`
+	ChunkSize     int          `json:"chunk_size"`
+	ChunkOverlap  int          `json:"chunk_overlap"`
+	IsActive      *bool        `json:"is_active"`
+}
+
+// extraTablesFromRequest validates and converts the request's ExtraTables
+// into the JSONB shape stored on the model, defaulting column names and
+// skipping a table that duplicates the primary collection (already searched
+// via CollectionName, so listing it again would just double-count its hits).
+func extraTablesFromRequest(refs []KBTableRef, primaryCollection string) (models.JSONBArray, error) {
+	arr := make(models.JSONBArray, 0, len(refs))
+	seen := map[string]bool{primaryCollection: true}
+	for _, ref := range refs {
+		table := strings.TrimSpace(ref.Table)
+		if table == "" || seen[table] {
+			continue
+		}
+		if !validCollectionName(table) {
+			return nil, fmt.Errorf("invalid table name %q", table)
+		}
+		seen[table] = true
+
+		contentColumn := ref.ContentColumn
+		if contentColumn == "" {
+			contentColumn = "content"
+		}
+		embeddingColumn := ref.EmbeddingColumn
+		if embeddingColumn == "" {
+			embeddingColumn = "embedding"
+		}
+		arr = append(arr, map[string]any{
+			"table":            table,
+			"content_column":   contentColumn,
+			"embedding_column": embeddingColumn,
+		})
+	}
+	return arr, nil
+}
+
+// extraTablesToResponse converts the model's stored JSONB shape back into
+// the typed API response shape.
+func extraTablesToResponse(arr models.JSONBArray) []KBTableRef {
+	refs := make([]KBTableRef, 0, len(arr))
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		table, _ := m["table"].(string)
+		if table == "" {
+			continue
+		}
+		content, _ := m["content_column"].(string)
+		embedding, _ := m["embedding_column"].(string)
+		refs = append(refs, KBTableRef{Table: table, ContentColumn: content, EmbeddingColumn: embedding})
+	}
+	return refs
 }
 
 // KnowledgeBaseResponse represents a knowledge base in API responses.
 type KnowledgeBaseResponse struct {
-	ID                 uuid.UUID `json:"id"`
-	Name               string    `json:"name"`
-	Description        string    `json:"description"`
-	DataConnectionID   uuid.UUID `json:"data_connection_id"`
-	DataConnectionName string    `json:"data_connection_name,omitempty"`
-	CollectionName     string    `json:"collection_name"`
-	ContentColumn      string    `json:"content_column"`
-	EmbeddingColumn    string    `json:"embedding_column"`
-	EmbeddingModel     string    `json:"embedding_model"`
-	EmbeddingDims      int       `json:"embedding_dims"`
-	ChunkSize          int       `json:"chunk_size"`
-	ChunkOverlap       int       `json:"chunk_overlap"`
-	IsActive           bool      `json:"is_active"`
-	DocumentCount      int64     `json:"document_count"`
-	CreatedAt          string    `json:"created_at"`
-	UpdatedAt          string    `json:"updated_at"`
+	ID                 uuid.UUID    `json:"id"`
+	Name               string       `json:"name"`
+	Description        string       `json:"description"`
+	DataConnectionID   uuid.UUID    `json:"data_connection_id"`
+	DataConnectionName string       `json:"data_connection_name,omitempty"`
+	CollectionName     string       `json:"collection_name"`
+	ContentColumn      string       `json:"content_column"`
+	EmbeddingColumn    string       `json:"embedding_column"`
+	ExtraTables        []KBTableRef `json:"extra_tables"`
+	EmbeddingModel     string       `json:"embedding_model"`
+	EmbeddingDims      int          `json:"embedding_dims"`
+	ChunkSize          int          `json:"chunk_size"`
+	ChunkOverlap       int          `json:"chunk_overlap"`
+	IsActive           bool         `json:"is_active"`
+	DocumentCount      int64        `json:"document_count"`
+	CreatedAt          string       `json:"created_at"`
+	UpdatedAt          string       `json:"updated_at"`
 }
 
 func knowledgeBaseToResponse(kb models.KnowledgeBase) KnowledgeBaseResponse {
@@ -74,6 +142,7 @@ func knowledgeBaseToResponse(kb models.KnowledgeBase) KnowledgeBaseResponse {
 		CollectionName:   kb.CollectionName,
 		ContentColumn:    kb.ContentColumn,
 		EmbeddingColumn:  kb.EmbeddingColumn,
+		ExtraTables:      extraTablesToResponse(kb.ExtraTables),
 		EmbeddingModel:   kb.EmbeddingModel,
 		EmbeddingDims:    kb.EmbeddingDims,
 		ChunkSize:        kb.ChunkSize,
@@ -214,6 +283,11 @@ func (a *App) CreateKnowledgeBase(r *fastglue.Request) error {
 		embeddingColumn = "embedding"
 	}
 
+	extraTables, err := extraTablesFromRequest(req.ExtraTables, req.CollectionName)
+	if err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, err.Error(), nil, "")
+	}
+
 	kb := models.KnowledgeBase{
 		OrganizationID:   orgID,
 		Name:             req.Name,
@@ -222,6 +296,7 @@ func (a *App) CreateKnowledgeBase(r *fastglue.Request) error {
 		CollectionName:   req.CollectionName,
 		ContentColumn:    contentColumn,
 		EmbeddingColumn:  embeddingColumn,
+		ExtraTables:      extraTables,
 		EmbeddingModel:   openAIEmbeddingModel,
 		EmbeddingDims:    dims,
 		ChunkSize:        chunkSize,

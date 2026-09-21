@@ -14,6 +14,7 @@ import {
   type DataConnectionType,
   type DataConnectionRequest,
   type DataConnectionTable,
+  type KBTableRef,
 } from '@/services/api'
 import { toast } from 'vue-sonner'
 import { getErrorMessage } from '@/lib/api-utils'
@@ -32,6 +33,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   BookOpen,
   Trash2,
@@ -43,6 +46,7 @@ import {
   Upload,
   Plus,
   MessageSquare,
+  ChevronsUpDown,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -86,17 +90,81 @@ const useExistingTable = ref(false)
 const existingTables = ref<DataConnectionTable[]>([])
 const isLoadingTables = ref(false)
 const tablesLoadError = ref('')
-const selectedTableName = ref('')
-const selectedEmbeddingColumn = ref('')
+const tablePickerOpen = ref(false)
+
+// Multiple tables can be selected at once (an org's data may be spread
+// across several vector tables — e.g. blog posts in one, products in
+// another) — see extra_tables on the request/response. Each selected
+// table keeps its own content/embedding column choice since schemas can
+// differ table to table.
+const selectedTableNames = ref<string[]>([])
+const tableColumns = ref<Record<string, { content_column: string; embedding_column: string }>>({})
 
 const selectedConnection = computed(() => dataConnections.value.find(dc => dc.id === form.value.data_connection_id))
 // A KB whose column names don't match this app's own ingestion shape is
 // reading an org's externally-managed table — uploading a document through
 // this app would try to INSERT into columns that don't exist there.
 const isExternalTable = computed(() => !!kb.value && (kb.value.content_column !== 'content' || kb.value.embedding_column !== 'embedding'))
-const selectedTable = computed(() => existingTables.value.find(t => t.name === selectedTableName.value))
-const textColumnsOfSelectedTable = computed(() => (selectedTable.value?.columns || []).filter(c => !c.is_vector))
-const vectorColumnsOfSelectedTable = computed(() => (selectedTable.value?.columns || []).filter(c => c.is_vector))
+const vectorTables = computed(() => existingTables.value.filter(t => t.has_vector_column))
+const selectedTables = computed(() => existingTables.value.filter(t => selectedTableNames.value.includes(t.name)))
+const allVectorTablesSelected = computed(() => vectorTables.value.length > 0 && vectorTables.value.every(t => selectedTableNames.value.includes(t.name)))
+const tablePickerLabel = computed(() => {
+  if (selectedTableNames.value.length === 0) return isLoadingTables.value ? t('common.loading', 'Loading...') : t('knowledgeBase.selectTable', 'Select a table')
+  return selectedTableNames.value.join(', ')
+})
+
+function vectorColumnsOf(tableName: string) {
+  return (existingTables.value.find(t => t.name === tableName)?.columns || []).filter(c => c.is_vector)
+}
+function textColumnsOf(tableName: string) {
+  return (existingTables.value.find(t => t.name === tableName)?.columns || []).filter(c => !c.is_vector)
+}
+function setTableColumn(tableName: string, key: 'content_column' | 'embedding_column', value: string) {
+  const current = tableColumns.value[tableName] || { content_column: '', embedding_column: '' }
+  tableColumns.value = { ...tableColumns.value, [tableName]: { ...current, [key]: value } }
+}
+// The first selected table sets the KB's embedding_dims; a later table
+// whose vector column has a different size can't be meaningfully compared
+// against the same query embedding, so flag it rather than silently
+// returning wrong/empty results for that table at query time.
+function tableDimsMismatch(tableName: string): boolean {
+  if (!form.value.embedding_dims) return false
+  const embeddingCol = tableColumns.value[tableName]?.embedding_column
+  const col = vectorColumnsOf(tableName).find(c => c.name === embeddingCol)
+  return !!col?.vector_dims && col.vector_dims !== form.value.embedding_dims
+}
+
+function toggleTable(tableName: string, checked: boolean) {
+  if (checked) {
+    if (!selectedTableNames.value.includes(tableName)) selectedTableNames.value = [...selectedTableNames.value, tableName]
+    const vectorCols = vectorColumnsOf(tableName)
+    const textCols = textColumnsOf(tableName)
+    tableColumns.value = {
+      ...tableColumns.value,
+      [tableName]: {
+        embedding_column: vectorCols[0]?.name || '',
+        content_column: textCols.length === 1 ? textCols[0].name : '',
+      },
+    }
+    if (selectedTableNames.value.length === 1) {
+      const dims = vectorCols[0]?.vector_dims
+      if (dims) form.value.embedding_dims = dims
+    }
+  } else {
+    selectedTableNames.value = selectedTableNames.value.filter(n => n !== tableName)
+    const { [tableName]: _removed, ...rest } = tableColumns.value
+    tableColumns.value = rest
+  }
+}
+
+function toggleSelectAll() {
+  if (allVectorTablesSelected.value) {
+    selectedTableNames.value = []
+    tableColumns.value = {}
+  } else {
+    vectorTables.value.forEach(t2 => { if (!selectedTableNames.value.includes(t2.name)) toggleTable(t2.name, true) })
+  }
+}
 
 async function browseExistingTables() {
   if (!form.value.data_connection_id) {
@@ -116,25 +184,13 @@ async function browseExistingTables() {
   }
 }
 
-watch(selectedTableName, () => {
-  form.value.collection_name = selectedTableName.value
-  selectedEmbeddingColumn.value = vectorColumnsOfSelectedTable.value[0]?.name || ''
-  form.value.content_column = ''
-})
-
-watch(selectedEmbeddingColumn, () => {
-  form.value.embedding_column = selectedEmbeddingColumn.value
-  const col = vectorColumnsOfSelectedTable.value.find(c => c.name === selectedEmbeddingColumn.value)
-  if (col?.vector_dims) form.value.embedding_dims = col.vector_dims
-})
-
 watch(useExistingTable, (on) => {
   if (on) {
     form.value.collection_name = ''
     form.value.content_column = ''
     form.value.embedding_column = ''
-    selectedTableName.value = ''
-    selectedEmbeddingColumn.value = ''
+    selectedTableNames.value = []
+    tableColumns.value = {}
     if (form.value.data_connection_id) browseExistingTables()
   }
 })
@@ -314,17 +370,20 @@ function validate(): boolean {
       return false
     }
     if (useExistingTable.value) {
-      if (!selectedTableName.value) {
-        toast.error(t('knowledgeBase.selectTableRequired', 'Select a table'))
+      if (selectedTableNames.value.length === 0) {
+        toast.error(t('knowledgeBase.selectTableRequired', 'Select at least one table'))
         return false
       }
-      if (!form.value.content_column) {
-        toast.error(t('knowledgeBase.selectContentColumnRequired', 'Select which column holds the text content'))
-        return false
-      }
-      if (!form.value.embedding_column) {
-        toast.error(t('knowledgeBase.selectEmbeddingColumnRequired', 'Select which column holds the embedding vector'))
-        return false
+      for (const name of selectedTableNames.value) {
+        const cols = tableColumns.value[name]
+        if (!cols?.content_column) {
+          toast.error(`${t('knowledgeBase.selectContentColumnRequired', 'Select which column holds the text content')} (${name})`)
+          return false
+        }
+        if (!cols?.embedding_column) {
+          toast.error(`${t('knowledgeBase.selectEmbeddingColumnRequired', 'Select which column holds the embedding vector')} (${name})`)
+          return false
+        }
       }
     } else if (!collectionNamePattern.test(form.value.collection_name)) {
       toast.error(t('knowledgeBase.collectionNameInvalid'))
@@ -339,14 +398,35 @@ async function save() {
   isSaving.value = true
   try {
     if (isNew.value) {
+      let collectionName = form.value.collection_name
+      let contentColumn: string | undefined
+      let embeddingColumn: string | undefined
+      let embeddingDims = form.value.embedding_dims
+      let extraTables: KBTableRef[] | undefined
+
+      if (useExistingTable.value) {
+        const [primaryTable, ...restTables] = selectedTableNames.value
+        collectionName = primaryTable
+        contentColumn = tableColumns.value[primaryTable].content_column
+        embeddingColumn = tableColumns.value[primaryTable].embedding_column
+        const primaryDims = vectorColumnsOf(primaryTable).find(c => c.name === embeddingColumn)?.vector_dims
+        if (primaryDims) embeddingDims = primaryDims
+        extraTables = restTables.map(name => ({
+          table: name,
+          content_column: tableColumns.value[name].content_column,
+          embedding_column: tableColumns.value[name].embedding_column,
+        }))
+      }
+
       const response = await knowledgeBasesService.create({
         name: form.value.name.trim(),
         description: form.value.description.trim(),
         data_connection_id: form.value.data_connection_id,
-        collection_name: form.value.collection_name,
-        content_column: useExistingTable.value ? form.value.content_column : undefined,
-        embedding_column: useExistingTable.value ? form.value.embedding_column : undefined,
-        embedding_dims: form.value.embedding_dims,
+        collection_name: collectionName,
+        content_column: contentColumn,
+        embedding_column: embeddingColumn,
+        extra_tables: extraTables,
+        embedding_dims: embeddingDims,
         chunk_size: form.value.chunk_size,
         chunk_overlap: form.value.chunk_overlap,
       })
@@ -728,6 +808,11 @@ onMounted(async () => {
               </div>
             </div>
 
+            <div v-if="!isNew && kb?.extra_tables?.length" class="space-y-1.5">
+              <Label class="text-xs">{{ $t('knowledgeBase.additionalTables', 'Additional tables') }}</Label>
+              <p class="text-sm text-muted-foreground">{{ kb.extra_tables.map(t2 => t2.table).join(', ') }}</p>
+            </div>
+
             <!-- Point at an existing, already-populated vector table -->
             <div v-if="isNew && selectedConnection?.type === 'postgres'" class="rounded-lg border border-border/60 p-3 space-y-3">
               <div class="flex items-center gap-2">
@@ -737,45 +822,71 @@ onMounted(async () => {
 
               <div v-if="useExistingTable" class="space-y-3">
                 <div v-if="tablesLoadError" class="text-xs text-destructive">{{ tablesLoadError }}</div>
+
+                <div class="flex items-center justify-between">
+                  <Label class="text-xs">{{ $t('knowledgeBase.selectTables', 'Tables') }} <span class="text-destructive">*</span></Label>
+                  <Button type="button" variant="ghost" size="sm" class="h-6 px-2 text-xs" :disabled="vectorTables.length === 0" @click="toggleSelectAll">
+                    {{ allVectorTablesSelected ? $t('common.deselectAll', 'Deselect all') : $t('common.selectAll', 'Select all') }}
+                  </Button>
+                </div>
                 <div class="flex items-center gap-2">
-                  <Select v-model="selectedTableName" class="flex-1">
-                    <SelectTrigger>
-                      <SelectValue :placeholder="isLoadingTables ? $t('common.loading', 'Loading...') : $t('knowledgeBase.selectTable', 'Select a table')" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="t2 in existingTables" :key="t2.name" :value="t2.name">
-                        {{ t2.name }}<span v-if="t2.has_vector_column"> ✓ {{ $t('knowledgeBase.hasVectorColumn', 'has vector column') }}</span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Popover v-model:open="tablePickerOpen">
+                    <PopoverTrigger as-child>
+                      <Button type="button" variant="outline" role="combobox" class="flex-1 justify-between font-normal">
+                        <span class="truncate">{{ tablePickerLabel }}</span>
+                        <ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent class="w-[--radix-popover-trigger-width] p-1 max-h-72 overflow-y-auto">
+                      <div v-if="existingTables.length === 0" class="p-2 text-xs text-muted-foreground">{{ $t('knowledgeBase.noTablesFound', 'No tables found') }}</div>
+                      <label
+                        v-for="t2 in existingTables"
+                        :key="t2.name"
+                        class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm"
+                        :class="t2.has_vector_column ? 'cursor-pointer hover:bg-accent' : 'opacity-50 cursor-not-allowed'"
+                      >
+                        <Checkbox
+                          :checked="selectedTableNames.includes(t2.name)"
+                          :disabled="!t2.has_vector_column"
+                          @update:checked="(v) => toggleTable(t2.name, !!v)"
+                        />
+                        <span class="flex-1 truncate">{{ t2.name }}</span>
+                        <span v-if="t2.has_vector_column" class="text-xs text-muted-foreground">✓ {{ $t('knowledgeBase.hasVectorColumn', 'has vector column') }}</span>
+                      </label>
+                    </PopoverContent>
+                  </Popover>
                   <Button type="button" variant="outline" size="sm" :disabled="isLoadingTables" @click="browseExistingTables">
                     <Loader2 v-if="isLoadingTables" class="h-4 w-4 animate-spin" />
                     <RotateCw v-else class="h-4 w-4" />
                   </Button>
                 </div>
 
-                <div v-if="selectedTable" class="grid grid-cols-2 gap-3">
-                  <div class="space-y-1.5">
-                    <Label class="text-xs">{{ $t('knowledgeBase.embeddingColumn', 'Embedding column') }} <span class="text-destructive">*</span></Label>
-                    <Select v-model="selectedEmbeddingColumn">
-                      <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem v-for="c in vectorColumnsOfSelectedTable" :key="c.name" :value="c.name">{{ c.name }} (vector{{ c.vector_dims ? `[${c.vector_dims}]` : '' }})</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p v-if="vectorColumnsOfSelectedTable.length === 0" class="text-xs text-destructive">{{ $t('knowledgeBase.noVectorColumn', 'This table has no vector column') }}</p>
+                <div v-for="t2 in selectedTables" :key="t2.name" class="rounded-md border border-border/50 p-2.5 space-y-2">
+                  <p class="text-xs font-medium">{{ t2.name }}</p>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div class="space-y-1.5">
+                      <Label class="text-xs">{{ $t('knowledgeBase.embeddingColumn', 'Embedding column') }} <span class="text-destructive">*</span></Label>
+                      <Select :model-value="tableColumns[t2.name]?.embedding_column" @update:model-value="(v) => setTableColumn(t2.name, 'embedding_column', String(v))">
+                        <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem v-for="c in vectorColumnsOf(t2.name)" :key="c.name" :value="c.name">{{ c.name }} (vector{{ c.vector_dims ? `[${c.vector_dims}]` : '' }})</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div class="space-y-1.5">
+                      <Label class="text-xs">{{ $t('knowledgeBase.contentColumn', 'Content column') }} <span class="text-destructive">*</span></Label>
+                      <Select :model-value="tableColumns[t2.name]?.content_column" @update:model-value="(v) => setTableColumn(t2.name, 'content_column', String(v))">
+                        <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem v-for="c in textColumnsOf(t2.name)" :key="c.name" :value="c.name">{{ c.name }} ({{ c.data_type }})</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div class="space-y-1.5">
-                    <Label class="text-xs">{{ $t('knowledgeBase.contentColumn', 'Content column') }} <span class="text-destructive">*</span></Label>
-                    <Select v-model="form.content_column">
-                      <SelectTrigger><SelectValue :placeholder="$t('knowledgeBase.selectColumn', 'Select column')" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem v-for="c in textColumnsOfSelectedTable" :key="c.name" :value="c.name">{{ c.name }} ({{ c.data_type }})</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <p v-if="tableDimsMismatch(t2.name)" class="text-xs text-amber-500">{{ $t('knowledgeBase.dimsMismatchWarning', "This table's vector size differs from the first selected table, so it will be skipped when the chatbot searches.") }}</p>
                 </div>
-                <p class="text-xs text-muted-foreground">{{ $t('knowledgeBase.useExistingTableHint', 'The chatbot will search this table directly. Make sure its vectors were created with an OpenAI embedding model — a different model\'s vectors are not comparable to the ones this app generates for each customer message.') }}</p>
+
+                <p class="text-xs text-muted-foreground">{{ $t('knowledgeBase.useExistingTableHint', 'The chatbot will search these tables directly. Make sure their vectors were created with an OpenAI embedding model — a different model\'s vectors are not comparable to the ones this app generates for each customer message.') }}</p>
               </div>
             </div>
 

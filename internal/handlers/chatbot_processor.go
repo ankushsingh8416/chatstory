@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -507,6 +508,37 @@ func (a *App) matchKeywordRules(orgID uuid.UUID, accountName, messageText string
 	return nil, false
 }
 
+var (
+	mdHeaderRe = regexp.MustCompile(`(?m)^#{1,6}[ \t]+(.+)$`)
+	mdBoldRe   = regexp.MustCompile(`\*\*(.+?)\*\*|__(.+?)__`)
+	mdBulletRe = regexp.MustCompile(`(?m)^(\s*)[-*+][ \t]+`)
+)
+
+// formatForWhatsApp rewrites common LLM/Markdown formatting into WhatsApp's
+// own plain-text formatting, so a chatbot's AI or knowledge-base answer
+// (which comes back from the model as standard Markdown) doesn't leak
+// literal "**", "#", or "-" characters into the customer's chat — WhatsApp
+// only understands single *bold*, _italic_ and ~strikethrough~, not GFM.
+// A lone "-"/"*"/"+" list marker left unconverted could also throw off
+// WhatsApp's *bold* pairing for the rest of the message, so bullets are
+// normalized too, not just headers/bold.
+func formatForWhatsApp(text string) string {
+	if text == "" {
+		return text
+	}
+	text = mdHeaderRe.ReplaceAllString(text, "*$1*")
+	text = mdBoldRe.ReplaceAllStringFunc(text, func(m string) string {
+		sub := mdBoldRe.FindStringSubmatch(m)
+		inner := sub[1]
+		if inner == "" {
+			inner = sub[2]
+		}
+		return "*" + inner + "*"
+	})
+	text = mdBulletRe.ReplaceAllString(text, "$1• ")
+	return text
+}
+
 // sendAndSaveTextMessage sends a text message and saves it to the database
 // Uses the unified SendOutgoingMessage for consistent behavior
 func (a *App) sendAndSaveTextMessage(account *models.WhatsAppAccount, contact *models.Contact, message string) error {
@@ -515,7 +547,7 @@ func (a *App) sendAndSaveTextMessage(account *models.WhatsAppAccount, contact *m
 		Account: account,
 		Contact: contact,
 		Type:    models.MessageTypeText,
-		Content: message,
+		Content: formatForWhatsApp(message),
 	}, ChatbotSendOptions())
 	return err
 }
@@ -1014,18 +1046,58 @@ func (a *App) fetchKnowledgeBaseContext(orgID uuid.UUID, apiConfig models.JSONB,
 		return "", err
 	}
 
-	results, err := store.Search(context.Background(), kb.CollectionName, embeddings[0], topK, kb.ContentColumn, kb.EmbeddingColumn)
-	if err != nil {
-		return "", fmt.Errorf("vector search failed: %w", err)
+	// Search the primary table plus any ExtraTables (an org whose data is
+	// spread across several existing vector tables — see
+	// models.KnowledgeBase.ExtraTables), then merge and re-rank by score so
+	// the final top_k is chosen across all tables together, not per table.
+	targets := []struct{ collection, contentColumn, embeddingColumn string }{
+		{kb.CollectionName, kb.ContentColumn, kb.EmbeddingColumn},
+	}
+	for _, raw := range kb.ExtraTables {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		table, _ := m["table"].(string)
+		if table == "" {
+			continue
+		}
+		contentColumn, _ := m["content_column"].(string)
+		embeddingColumn, _ := m["embedding_column"].(string)
+		targets = append(targets, struct{ collection, contentColumn, embeddingColumn string }{table, contentColumn, embeddingColumn})
 	}
 
+	var allResults []vectorstore.SearchResult
+	var firstErr error
+	succeeded := 0
+	for _, t := range targets {
+		results, err := store.Search(context.Background(), t.collection, embeddings[0], topK, t.contentColumn, t.embeddingColumn)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			a.Log.Warn("knowledge base table search failed", "table", t.collection, "error", err)
+			continue
+		}
+		succeeded++
+		allResults = append(allResults, results...)
+	}
+	if succeeded == 0 {
+		return "", fmt.Errorf("vector search failed: %w", firstErr)
+	}
+
+	sort.Slice(allResults, func(i, j int) bool { return allResults[i].Score > allResults[j].Score })
+
 	var parts []string
-	for _, r := range results {
+	for _, r := range allResults {
 		if r.Score < threshold {
 			continue
 		}
 		if r.Content != "" {
 			parts = append(parts, r.Content)
+		}
+		if len(parts) >= topK {
+			break
 		}
 	}
 	if len(parts) == 0 {
