@@ -1,10 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch, onErrorCaptured } from 'vue'
-const __diagError = ref('')
-onErrorCaptured((err, instance, info) => {
-  __diagError.value = `${err instanceof Error ? err.stack : String(err)} || info=${info}`
-  return false
-})
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -444,7 +439,6 @@ onMounted(async () => {
         </div>
       </template>
 
-      <pre v-if="__diagError" style="color:red;white-space:pre-wrap;border:2px solid red;padding:8px">{{ __diagError }}</pre>
       <!-- Create mode -->
       <Card v-if="isNew">
         <CardHeader class="pb-3">

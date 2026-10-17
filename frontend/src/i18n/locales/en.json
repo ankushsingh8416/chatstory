@@ -834,7 +834,7 @@
       "orgNamePlaceholder": "Acme Inc.",
       "orgNameRequired": "Organization name is required",
       "adminEmail": "Admin Email",
-      "adminEmailPlaceholder": "admin@example.com",
+      "adminEmailPlaceholder": "admin{'@'}example.com",
       "adminEmailRequired": "Admin email is required",
       "adminFullName": "Admin Full Name",
       "adminFullNamePlaceholder": "Jane Doe",
