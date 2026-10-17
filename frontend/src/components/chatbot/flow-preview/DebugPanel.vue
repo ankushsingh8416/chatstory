@@ -100,7 +100,7 @@ function handlePlayPause() {
 <template>
   <div class="h-full flex flex-col bg-gray-50 dark:bg-[#111b21] border-l border-gray-200 dark:border-gray-700">
     <!-- Header -->
-    <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-[#202c33]">
+    <div class="pl-3 pr-10 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-[#202c33]">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div

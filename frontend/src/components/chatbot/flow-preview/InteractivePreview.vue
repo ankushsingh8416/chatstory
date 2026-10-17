@@ -137,11 +137,11 @@ function handleGoToStep(stepName: string) {
 </script>
 
 <template>
-  <div class="flex-1 flex h-full">
+  <div class="flex-1 flex h-full min-h-0">
     <!-- Chat Area -->
-    <div class="flex-1 flex flex-col min-w-0">
+    <div class="flex-1 flex flex-col min-w-0 min-h-0">
       <!-- Phone Frame Container -->
-      <div class="flex-1 flex items-center justify-center p-6 bg-gray-100 dark:bg-gray-900">
+      <div class="flex-1 min-h-0 flex items-center justify-center p-6 bg-gray-100 dark:bg-gray-900">
         <!-- Device bezel -->
         <div
           id="preview-phone-frame"
