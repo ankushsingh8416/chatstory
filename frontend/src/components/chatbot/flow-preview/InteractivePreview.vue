@@ -145,7 +145,7 @@ function handleGoToStep(stepName: string) {
         <!-- Device bezel -->
         <div
           id="preview-phone-frame"
-          class="w-full max-w-[400px] h-full max-h-[760px] bg-black rounded-[40px] p-[10px] shadow-2xl flex flex-col"
+          class="h-full max-h-[760px] w-auto max-w-[400px] aspect-[9/19.5] bg-black rounded-[40px] p-[10px] shadow-2xl flex flex-col"
         >
           <!-- Screen -->
           <div class="flex-1 rounded-[32px] overflow-hidden flex flex-col bg-[#efeae2] dark:bg-[#0b141a]">
