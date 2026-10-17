@@ -30,6 +30,8 @@ const orgID = computed(
 const userID = computed(() => authStore.user?.id || '')
 const canWriteAccounts = computed(() => authStore.hasPermission('accounts', 'write'))
 const canWriteKnowledgeBase = computed(() => authStore.hasPermission('knowledge_base', 'write'))
+const canWriteOrders = computed(() => authStore.hasPermission('orders', 'write'))
+const razorpayWebhookURL = `${window.location.origin}/api/webhooks/razorpay`
 
 const isSubmitting = ref(false)
 const isLoading = ref(true)
@@ -46,7 +48,13 @@ const generalSettings = ref({
   has_meta_app_secret: false,
   openai_embeddings_key: '',
   has_openai_embeddings_key: false,
-  logo_data_url: ''
+  logo_data_url: '',
+  cod_enabled: false,
+  razorpay_key_id: '',
+  razorpay_key_secret: '',
+  has_razorpay_key_secret: false,
+  razorpay_webhook_secret: '',
+  has_razorpay_webhook_secret: false
 })
 
 const isUploadingLogo = ref(false)
@@ -110,7 +118,13 @@ onMounted(async () => {
         has_meta_app_secret: orgData.settings?.has_meta_app_secret || false,
         openai_embeddings_key: '',
         has_openai_embeddings_key: orgData.settings?.has_openai_embeddings_key || false,
-        logo_data_url: orgData.settings?.logo_data_url || ''
+        logo_data_url: orgData.settings?.logo_data_url || '',
+        cod_enabled: orgData.settings?.cod_enabled || false,
+        razorpay_key_id: orgData.settings?.razorpay_key_id || '',
+        razorpay_key_secret: '',
+        has_razorpay_key_secret: orgData.settings?.has_razorpay_key_secret || false,
+        razorpay_webhook_secret: '',
+        has_razorpay_webhook_secret: orgData.settings?.has_razorpay_webhook_secret || false
       }
       callingSettings.value = {
         calling_enabled: orgData.settings?.calling_enabled || false,
@@ -156,17 +170,31 @@ async function saveGeneralSettings() {
     if (canWriteKnowledgeBase.value && generalSettings.value.openai_embeddings_key) {
       payload.openai_embeddings_key = generalSettings.value.openai_embeddings_key
     }
+    if (canWriteOrders.value) {
+      payload.cod_enabled = generalSettings.value.cod_enabled
+      payload.razorpay_key_id = generalSettings.value.razorpay_key_id
+      if (generalSettings.value.razorpay_key_secret) {
+        payload.razorpay_key_secret = generalSettings.value.razorpay_key_secret
+      }
+      if (generalSettings.value.razorpay_webhook_secret) {
+        payload.razorpay_webhook_secret = generalSettings.value.razorpay_webhook_secret
+      }
+    }
     await organizationService.updateSettings(payload)
     toast.success(t('settings.generalSaved'))
     // Clear secret inputs after save
     generalSettings.value.meta_app_secret = ''
     generalSettings.value.openai_embeddings_key = ''
+    generalSettings.value.razorpay_key_secret = ''
+    generalSettings.value.razorpay_webhook_secret = ''
     // Refresh organization settings to update has_*_secret status
     const orgResponse = await organizationService.getSettings()
     const orgData = orgResponse.data.data || orgResponse.data
     if (orgData) {
       generalSettings.value.has_meta_app_secret = orgData.settings?.has_meta_app_secret || false
       generalSettings.value.has_openai_embeddings_key = orgData.settings?.has_openai_embeddings_key || false
+      generalSettings.value.has_razorpay_key_secret = orgData.settings?.has_razorpay_key_secret || false
+      generalSettings.value.has_razorpay_webhook_secret = orgData.settings?.has_razorpay_webhook_secret || false
     }
     refreshActivityLog(generalLogKey)
   } catch (error) {
@@ -471,6 +499,52 @@ function togglePlayAudio(type: 'hold_music' | 'ringback') {
                     :placeholder="generalSettings.has_openai_embeddings_key ? '••••••••••••' : 'sk-...'"
                   />
                   <p class="text-xs text-white/40 light:text-gray-500">{{ $t('settings.openaiEmbeddingsKeyHint') }}</p>
+                </div>
+                <div class="flex justify-end">
+                  <Button variant="outline" size="sm" class="bg-white/[0.04] border-white/[0.1] text-white/70 hover:bg-white/[0.08] hover:text-white light:bg-white light:border-gray-200 light:text-gray-700 light:hover:bg-gray-50" @click="saveGeneralSettings" :disabled="isSubmitting">
+                    <Loader2 v-if="isSubmitting" class="mr-2 h-4 w-4 animate-spin" />
+                    {{ $t('settings.save') }}
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <!-- Commerce Settings Card (Gated on canWriteOrders) -->
+            <div v-if="canWriteOrders" class="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.02] light:bg-white light:border-gray-200">
+              <div class="p-6 pb-3">
+                <h3 class="text-lg font-semibold text-white light:text-gray-900">{{ $t('settings.commerce', 'Commerce') }}</h3>
+                <p class="text-sm text-white/40 light:text-gray-500">{{ $t('settings.commerceDesc', 'Razorpay payment links and Cash on Delivery for WhatsApp catalog orders.') }}</p>
+              </div>
+              <div class="p-6 pt-3 space-y-4">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="font-medium text-white light:text-gray-900">{{ $t('settings.codEnabled', 'Cash on Delivery') }}</p>
+                    <p class="text-sm text-white/40 light:text-gray-500">{{ $t('settings.codEnabledDesc', 'Offer Cash on Delivery as a payment option on orders.') }}</p>
+                  </div>
+                  <Switch :checked="generalSettings.cod_enabled" @update:checked="generalSettings.cod_enabled = $event" />
+                </div>
+                <Separator class="bg-white/[0.08] light:bg-gray-200" />
+                <div class="space-y-2">
+                  <Label for="razorpay_key_id" class="text-white/70 light:text-gray-700">{{ $t('settings.razorpayKeyId', 'Razorpay Key ID') }}</Label>
+                  <Input id="razorpay_key_id" v-model="generalSettings.razorpay_key_id" placeholder="rzp_live_..." />
+                </div>
+                <div class="space-y-2">
+                  <Label for="razorpay_key_secret" class="text-white/70 light:text-gray-700">{{ $t('settings.razorpayKeySecret', 'Razorpay Key Secret') }}</Label>
+                  <Input
+                    id="razorpay_key_secret"
+                    type="password"
+                    v-model="generalSettings.razorpay_key_secret"
+                    :placeholder="generalSettings.has_razorpay_key_secret ? '••••••••••••' : 'Enter Razorpay Key Secret'"
+                  />
+                </div>
+                <div class="space-y-2">
+                  <Label for="razorpay_webhook_secret" class="text-white/70 light:text-gray-700">{{ $t('settings.razorpayWebhookSecret', 'Razorpay Webhook Secret') }}</Label>
+                  <Input
+                    id="razorpay_webhook_secret"
+                    type="password"
+                    v-model="generalSettings.razorpay_webhook_secret"
+                    :placeholder="generalSettings.has_razorpay_webhook_secret ? '••••••••••••' : 'Enter Razorpay Webhook Secret'"
+                  />
+                  <p class="text-xs text-white/40 light:text-gray-500">{{ $t('settings.razorpayWebhookSecretHint', 'Set this webhook URL in your Razorpay dashboard, subscribed to the payment_link.paid event: ') }}<code class="text-[11px]">{{ razorpayWebhookURL }}</code></p>
                 </div>
                 <div class="flex justify-end">
                   <Button variant="outline" size="sm" class="bg-white/[0.04] border-white/[0.1] text-white/70 hover:bg-white/[0.08] hover:text-white light:bg-white light:border-gray-200 light:text-gray-700 light:hover:bg-gray-50" @click="saveGeneralSettings" :disabled="isSubmitting">

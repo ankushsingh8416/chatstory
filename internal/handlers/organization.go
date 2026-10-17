@@ -75,6 +75,12 @@ type OrganizationSettings struct {
 	// upload time — see UploadOrgLogo), or empty if none is set. Not secret,
 	// so it's returned directly rather than via a has_* flag.
 	LogoDataURL string `json:"logo_data_url,omitempty"`
+
+	// Commerce (WhatsApp catalog orders + Razorpay payment links)
+	CODEnabled               bool   `json:"cod_enabled"`
+	RazorpayKeyID            string `json:"razorpay_key_id"`
+	HasRazorpayKeySecret     bool   `json:"has_razorpay_key_secret"`
+	HasRazorpayWebhookSecret bool   `json:"has_razorpay_webhook_secret"`
 }
 
 // GetOrganizationSettings returns the organization settings
@@ -141,6 +147,18 @@ func (a *App) GetOrganizationSettings(r *fastglue.Request) error {
 		if v, ok := org.Settings["logo_data_url"].(string); ok && v != "" {
 			settings.LogoDataURL = v
 		}
+		if v, ok := org.Settings["cod_enabled"].(bool); ok {
+			settings.CODEnabled = v
+		}
+		if v, ok := org.Settings["razorpay_key_id"].(string); ok {
+			settings.RazorpayKeyID = v
+		}
+		if v, ok := org.Settings["razorpay_key_secret_encrypted"].(string); ok && v != "" {
+			settings.HasRazorpayKeySecret = true
+		}
+		if v, ok := org.Settings["razorpay_webhook_secret_encrypted"].(string); ok && v != "" {
+			settings.HasRazorpayWebhookSecret = true
+		}
 	}
 
 	return r.SendEnvelope(map[string]any{
@@ -157,19 +175,23 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 	}
 
 	var req struct {
-		MaskPhoneNumbers    *bool   `json:"mask_phone_numbers"`
-		Timezone            *string `json:"timezone"`
-		DateFormat          *string `json:"date_format"`
-		Name                *string `json:"name"`
-		CallingEnabled      *bool   `json:"calling_enabled"`
-		MaxCallDuration     *int    `json:"max_call_duration"`
-		TransferTimeoutSecs *int    `json:"transfer_timeout_secs"`
-		HoldMusicFile       *string `json:"hold_music_file"`
-		RingbackFile        *string `json:"ringback_file"`
-		MetaAppID           *string `json:"meta_app_id"`
-		MetaConfigID        *string `json:"meta_config_id"`
-		MetaAppSecret       *string `json:"meta_app_secret"`
-		OpenAIEmbeddingsKey *string `json:"openai_embeddings_key"`
+		MaskPhoneNumbers      *bool   `json:"mask_phone_numbers"`
+		Timezone              *string `json:"timezone"`
+		DateFormat            *string `json:"date_format"`
+		Name                  *string `json:"name"`
+		CallingEnabled        *bool   `json:"calling_enabled"`
+		MaxCallDuration       *int    `json:"max_call_duration"`
+		TransferTimeoutSecs   *int    `json:"transfer_timeout_secs"`
+		HoldMusicFile         *string `json:"hold_music_file"`
+		RingbackFile          *string `json:"ringback_file"`
+		MetaAppID             *string `json:"meta_app_id"`
+		MetaConfigID          *string `json:"meta_config_id"`
+		MetaAppSecret         *string `json:"meta_app_secret"`
+		OpenAIEmbeddingsKey   *string `json:"openai_embeddings_key"`
+		CODEnabled            *bool   `json:"cod_enabled"`
+		RazorpayKeyID         *string `json:"razorpay_key_id"`
+		RazorpayKeySecret     *string `json:"razorpay_key_secret"`
+		RazorpayWebhookSecret *string `json:"razorpay_webhook_secret"`
 	}
 
 	if err := json.Unmarshal(r.RequestCtx.PostBody(), &req); err != nil {
@@ -191,6 +213,13 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 	// Gating the embeddings key on knowledge_base:write — it's KB-specific, not a general secret.
 	if req.OpenAIEmbeddingsKey != nil {
 		if err := a.requirePermission(r, userID, models.ResourceKnowledgeBase, models.ActionWrite); err != nil {
+			return nil
+		}
+	}
+	// Gating commerce settings on orders:write — same reasoning as the embeddings key above.
+	commerceTouched := req.CODEnabled != nil || req.RazorpayKeyID != nil || req.RazorpayKeySecret != nil || req.RazorpayWebhookSecret != nil
+	if commerceTouched {
+		if err := a.requirePermission(r, userID, models.ResourceOrders, models.ActionWrite); err != nil {
 			return nil
 		}
 	}
@@ -256,6 +285,28 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 	}
 	if req.Name != nil && *req.Name != "" {
 		org.Name = *req.Name
+	}
+	if req.CODEnabled != nil {
+		org.Settings["cod_enabled"] = *req.CODEnabled
+	}
+	if req.RazorpayKeyID != nil {
+		org.Settings["razorpay_key_id"] = *req.RazorpayKeyID
+	}
+	if req.RazorpayKeySecret != nil && *req.RazorpayKeySecret != "" {
+		encSecret, errEnc := crypto.Encrypt(*req.RazorpayKeySecret, a.Config.App.EncryptionKey)
+		if errEnc != nil {
+			a.Log.Error("Failed to encrypt Razorpay key secret", "error", errEnc)
+			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to update settings", nil, "")
+		}
+		org.Settings["razorpay_key_secret_encrypted"] = encSecret
+	}
+	if req.RazorpayWebhookSecret != nil && *req.RazorpayWebhookSecret != "" {
+		encSecret, errEnc := crypto.Encrypt(*req.RazorpayWebhookSecret, a.Config.App.EncryptionKey)
+		if errEnc != nil {
+			a.Log.Error("Failed to encrypt Razorpay webhook secret", "error", errEnc)
+			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to update settings", nil, "")
+		}
+		org.Settings["razorpay_webhook_secret_encrypted"] = encSecret
 	}
 
 	if err := a.DB.Save(&org).Error; err != nil {

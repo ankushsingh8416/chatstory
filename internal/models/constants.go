@@ -40,6 +40,7 @@ const (
 	MessageTypeReaction    MessageType = "reaction"
 	MessageTypeLocation    MessageType = "location"
 	MessageTypeContact     MessageType = "contact"
+	MessageTypeOrder       MessageType = "order"
 )
 
 // MessageStatus represents the delivery status of a message

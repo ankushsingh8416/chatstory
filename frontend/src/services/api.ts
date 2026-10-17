@@ -1071,6 +1071,47 @@ export const catalogsService = {
   deleteProduct: (id: string) => api.delete(`/products/${id}`)
 }
 
+// Orders (customer orders placed via WhatsApp catalog)
+export type OrderStatus = 'new' | 'payment_pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled'
+
+export interface OrderItem {
+  id: string
+  retailer_id: string
+  product_name: string
+  quantity: number
+  unit_price: number
+  currency: string
+}
+
+export interface Order {
+  id: string
+  whatsapp_account: string
+  contact_id: string
+  contact_name?: string
+  contact_phone?: string
+  status: OrderStatus
+  payment_method: string
+  payment_status: string
+  subtotal: number
+  currency: string
+  customer_note: string
+  tracking_carrier: string
+  tracking_number: string
+  tracking_url: string
+  paid_at?: string
+  items?: OrderItem[]
+  created_at: string
+  updated_at: string
+}
+
+export const ordersService = {
+  list: (params?: { status?: string; contact_id?: string }) => api.get<{ orders: Order[] }>('/orders', { params }),
+  get: (id: string) => api.get<Order>(`/orders/${id}`),
+  updateStatus: (id: string, data: { status?: OrderStatus; tracking_carrier?: string; tracking_number?: string; tracking_url?: string }) =>
+    api.put<Order>(`/orders/${id}/status`, data),
+  listForContact: (contactId: string) => api.get<{ orders: Order[] }>(`/contacts/${contactId}/orders`)
+}
+
 // Audit Logs
 export interface AuditLogChange {
   field: string

@@ -520,7 +520,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 		// Skip auth for public routes
 		if path == "/health" || path == "/ready" ||
 			path == "/api/auth/login" || path == "/api/auth/register" || path == "/api/auth/refresh" ||
-			path == "/api/auth/logout" || path == "/api/webhook" || path == "/ws" {
+			path == "/api/auth/logout" || path == "/api/webhook" || path == "/api/webhooks/razorpay" || path == "/ws" {
 			return r
 		}
 		// Skip auth for SSO routes (they handle their own auth via state tokens)
@@ -895,6 +895,15 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.GET("/api/products/{id}", app.GetCatalogProduct)
 	g.PUT("/api/products/{id}", app.UpdateCatalogProduct)
 	g.DELETE("/api/products/{id}", app.DeleteCatalogProduct)
+
+	// Orders (customer orders placed via WhatsApp catalog)
+	g.GET("/api/orders", app.ListOrders)
+	g.GET("/api/orders/{id}", app.GetOrder)
+	g.PUT("/api/orders/{id}/status", app.UpdateOrderStatus)
+	g.GET("/api/contacts/{id}/orders", app.ListContactOrders)
+
+	// Razorpay webhook (public — Razorpay calls this directly)
+	g.POST("/api/webhooks/razorpay", app.RazorpayWebhook)
 
 	// Serve embedded frontend (SPA)
 	if frontend.IsEmbedded() {

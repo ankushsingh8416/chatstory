@@ -102,6 +102,18 @@ const router = createRouter({
           meta: { permission: 'catalogs' }
         },
         {
+          path: 'orders',
+          name: 'orders',
+          component: () => import('@/views/commerce/OrdersView.vue'),
+          meta: { permission: 'orders' }
+        },
+        {
+          path: 'orders/:id',
+          name: 'order-detail',
+          component: () => import('@/views/commerce/OrderDetailView.vue'),
+          meta: { permission: 'orders' }
+        },
+        {
           path: 'chatbot',
           name: 'chatbot',
           component: () => import('@/views/chatbot/ChatbotView.vue'),
@@ -423,6 +435,7 @@ const navigationOrder = [
   { path: '/flows', permission: 'flows.whatsapp' },
   { path: '/campaigns', permission: 'campaigns' },
   { path: '/catalogs', permission: 'catalogs' },
+  { path: '/orders', permission: 'orders' },
   { path: '/calling/logs', permission: 'call_logs', childPaths: [
     { path: '/calling/logs', permission: 'call_logs' },
     { path: '/calling/ivr-flows', permission: 'ivr_flows' },

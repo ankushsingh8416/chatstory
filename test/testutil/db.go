@@ -120,6 +120,9 @@ func runMigrations(db *gorm.DB) error {
 		// Catalog models
 		&models.Catalog{},
 		&models.CatalogProduct{},
+		// Orders
+		&models.Order{},
+		&models.OrderItem{},
 		// Canned responses
 		&models.CannedResponse{},
 		// Dashboard
@@ -142,6 +145,9 @@ func cleanupTables(db *gorm.DB) {
 	tables := []string{
 		// Dashboard tables
 		"widgets",
+		// Order tables
+		"order_items",
+		"orders",
 		// Catalog tables
 		"catalog_products",
 		"catalogs",
@@ -197,6 +203,8 @@ func cleanupTables(db *gorm.DB) {
 func TruncateTables(db *gorm.DB) {
 	tables := []string{
 		"widgets",
+		"order_items",
+		"orders",
 		"catalog_products",
 		"catalogs",
 		"canned_responses",

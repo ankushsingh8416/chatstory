@@ -113,6 +113,18 @@ type IncomingTextMessage struct {
 		MessageID string `json:"message_id"` // WhatsApp message ID being reacted to
 		Emoji     string `json:"emoji"`      // The emoji reaction (empty string = remove reaction)
 	} `json:"reaction,omitempty"`
+	// Order is present when a customer submits a cart built from a catalog
+	// message — see handleIncomingOrder in orders.go.
+	Order *struct {
+		CatalogID    string `json:"catalog_id"`
+		Text         string `json:"text,omitempty"`
+		ProductItems []struct {
+			ProductRetailerID string  `json:"product_retailer_id"`
+			Quantity          int     `json:"quantity"`
+			ItemPrice         float64 `json:"item_price"`
+			Currency          string  `json:"currency"`
+		} `json:"product_items"`
+	} `json:"order,omitempty"`
 	Location *struct {
 		Latitude  float64 `json:"latitude"`
 		Longitude float64 `json:"longitude"`
@@ -181,6 +193,14 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 		})
 	}
 
+	// An order is a transactional event, not a conversational turn — capture
+	// it and ask for a payment method, bypassing chatbot/flow dispatch
+	// entirely (same reasoning as the reaction branch above).
+	if msg.Type == "order" && msg.Order != nil {
+		a.handleIncomingOrder(account, contact, msg)
+		return
+	}
+
 	// Get message content - handle text, button replies, list replies, and media
 	extracted := a.extractMessageContent(context.Background(), msg, account)
 	messageText := extracted.Text
@@ -188,6 +208,12 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 	buttonID := extracted.ButtonID
 	mediaInfo := extracted.Media
 	flowResponseData := extracted.FlowResponseData
+
+	// Route the order payment-method choice before any chatbot/flow dispatch.
+	if strings.HasPrefix(buttonID, "order_pay:") || strings.HasPrefix(buttonID, "order_cod:") {
+		a.handleOrderPaymentChoice(account, contact, buttonID)
+		return
+	}
 
 	// Save incoming message to messages table (always, even if chatbot is disabled)
 	var replyToWAMID string

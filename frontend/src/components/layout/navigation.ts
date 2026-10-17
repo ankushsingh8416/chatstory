@@ -24,7 +24,8 @@ import {
   ScrollText,
   Building2,
   BookOpen,
-  ShoppingBag
+  ShoppingBag,
+  ShoppingCart
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
@@ -112,6 +113,7 @@ export const navigationSections: NavSection[] = [
     permissions: ['catalogs', 'orders'],
     items: [
       { name: 'nav.catalogs', path: '/catalogs', icon: ShoppingBag, permission: 'catalogs' },
+      { name: 'nav.orders', path: '/orders', icon: ShoppingCart, permission: 'orders' },
     ]
   },
   {
