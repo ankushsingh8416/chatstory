@@ -87,6 +87,8 @@ const (
 	ResourceAuditLogs               = "audit_logs"
 	ResourceDataConnections         = "data_connections"
 	ResourceKnowledgeBase           = "knowledge_base"
+	ResourceCatalogs                = "catalogs"
+	ResourceOrders                  = "orders"
 )
 
 // PermissionAction constants for available actions
@@ -250,6 +252,16 @@ func DefaultPermissions() []Permission {
 		{Resource: ResourceKnowledgeBase, Action: ActionRead, Description: "View knowledge bases and documents"},
 		{Resource: ResourceKnowledgeBase, Action: ActionWrite, Description: "Create knowledge bases and upload/ingest documents"},
 		{Resource: ResourceKnowledgeBase, Action: ActionDelete, Description: "Delete knowledge bases and documents"},
+
+		// Catalogs (WhatsApp Commerce product catalogs)
+		{Resource: ResourceCatalogs, Action: ActionRead, Description: "View catalogs and products"},
+		{Resource: ResourceCatalogs, Action: ActionWrite, Description: "Create and edit catalogs and products"},
+		{Resource: ResourceCatalogs, Action: ActionDelete, Description: "Delete catalogs and products"},
+		{Resource: ResourceCatalogs, Action: ActionSync, Description: "Sync catalogs from Meta"},
+
+		// Orders (customer orders placed via WhatsApp catalog)
+		{Resource: ResourceOrders, Action: ActionRead, Description: "View orders"},
+		{Resource: ResourceOrders, Action: ActionWrite, Description: "Update order status and tracking"},
 	}
 }
 

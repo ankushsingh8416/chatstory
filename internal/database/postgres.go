@@ -103,6 +103,10 @@ func GetMigrationModels() []MigrationModel {
 		{"Catalog", &models.Catalog{}},
 		{"CatalogProduct", &models.CatalogProduct{}},
 
+		// Orders (WhatsApp catalog checkout)
+		{"Order", &models.Order{}},
+		{"OrderItem", &models.OrderItem{}},
+
 		// Dashboard
 		{"Widget", &models.Widget{}},
 

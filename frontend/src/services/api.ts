@@ -1030,6 +1030,47 @@ export const knowledgeBasesService = {
   deleteDocument: (kbId: string, docId: string) => api.delete(`/knowledge-bases/${kbId}/documents/${docId}`)
 }
 
+// Catalogs (WhatsApp Commerce product catalogs)
+export interface CatalogProduct {
+  id: string
+  meta_product_id: string
+  name: string
+  description: string
+  price: number
+  currency: string
+  url: string
+  image_url: string
+  retailer_id: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Catalog {
+  id: string
+  meta_catalog_id: string
+  whatsapp_account: string
+  name: string
+  is_active: boolean
+  product_count: number
+  products?: CatalogProduct[]
+  created_at: string
+  updated_at: string
+}
+
+export const catalogsService = {
+  list: (whatsappAccount?: string) => api.get<{ catalogs: Catalog[] }>('/catalogs', { params: whatsappAccount ? { whatsapp_account: whatsappAccount } : undefined }),
+  get: (id: string) => api.get<Catalog>(`/catalogs/${id}`),
+  create: (data: { whatsapp_account: string; name: string }) => api.post<Catalog>('/catalogs', data),
+  delete: (id: string) => api.delete(`/catalogs/${id}`),
+  sync: (whatsappAccount: string) => api.post<{ message: string; synced: number; total: number }>('/catalogs/sync', { whatsapp_account: whatsappAccount }),
+  listProducts: (catalogId: string) => api.get<{ products: CatalogProduct[] }>(`/catalogs/${catalogId}/products`),
+  createProduct: (catalogId: string, data: Partial<CatalogProduct>) => api.post<CatalogProduct>(`/catalogs/${catalogId}/products`, data),
+  getProduct: (id: string) => api.get<CatalogProduct>(`/products/${id}`),
+  updateProduct: (id: string, data: Partial<CatalogProduct>) => api.put<CatalogProduct>(`/products/${id}`, data),
+  deleteProduct: (id: string) => api.delete(`/products/${id}`)
+}
+
 // Audit Logs
 export interface AuditLogChange {
   field: string

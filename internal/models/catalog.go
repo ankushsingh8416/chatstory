@@ -23,7 +23,7 @@ func (Catalog) TableName() string {
 // CatalogProduct represents a product in a catalog
 type CatalogProduct struct {
 	BaseModel
-	OrganizationID uuid.UUID `gorm:"type:uuid;index;not null" json:"organization_id"`
+	OrganizationID uuid.UUID `gorm:"type:uuid;index;index:idx_catalog_products_org_retailer,priority:1;not null" json:"organization_id"`
 	CatalogID      uuid.UUID `gorm:"type:uuid;index;not null" json:"catalog_id"`
 	MetaProductID  string    `gorm:"size:100;uniqueIndex" json:"meta_product_id"`
 	Name           string    `gorm:"size:255;not null" json:"name"`
@@ -32,8 +32,11 @@ type CatalogProduct struct {
 	Currency       string    `gorm:"size:3;default:'USD'" json:"currency"`
 	URL            string    `gorm:"size:500" json:"url"`
 	ImageURL       string    `gorm:"size:500" json:"image_url"`
-	RetailerID     string    `gorm:"size:100" json:"retailer_id"` // SKU
-	IsActive       bool      `gorm:"default:true" json:"is_active"`
+	// RetailerID is Meta's product_retailer_id (SKU) — indexed together with
+	// OrganizationID so an incoming order's line items can be resolved back
+	// to a known product (see internal/handlers/orders.go).
+	RetailerID string `gorm:"size:100;index:idx_catalog_products_org_retailer,priority:2" json:"retailer_id"`
+	IsActive   bool   `gorm:"default:true" json:"is_active"`
 
 	// Relations
 	Organization *Organization `gorm:"foreignKey:OrganizationID" json:"organization,omitempty"`

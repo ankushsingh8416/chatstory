@@ -27,6 +27,15 @@ export function formatDateTime(date: string | Date): string {
   return `${formatDate(date)} ${formatTime(date)}`
 }
 
+/** amountMinor is the smallest currency unit (paise/cents), matching how prices are stored on the backend. */
+export function formatCurrency(amountMinor: number, currency = 'INR'): string {
+  try {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(amountMinor / 100)
+  } catch {
+    return `${currency} ${(amountMinor / 100).toFixed(2)}`
+  }
+}
+
 export function truncate(str: string, length: number): string {
   if (str.length <= length) return str
   return str.slice(0, length) + '...'

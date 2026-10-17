@@ -23,7 +23,8 @@ import {
   PhoneForwarded,
   ScrollText,
   Building2,
-  BookOpen
+  BookOpen,
+  ShoppingBag
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
@@ -104,6 +105,13 @@ export const navigationSections: NavSection[] = [
         icon: Workflow,
         permission: 'flows.whatsapp'
       },
+    ]
+  },
+  {
+    label: 'nav.sectionCommerce',
+    permissions: ['catalogs', 'orders'],
+    items: [
+      { name: 'nav.catalogs', path: '/catalogs', icon: ShoppingBag, permission: 'catalogs' },
     ]
   },
   {
