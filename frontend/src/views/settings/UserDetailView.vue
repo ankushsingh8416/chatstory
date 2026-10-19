@@ -75,7 +75,8 @@ const isSuperAdmin = computed(() => authStore.user?.is_super_admin || false)
 const isSelf = computed(() => user.value?.id === currentUserId.value)
 const isMember = computed(() => user.value?.is_member || false)
 
-// Reset password (one-time password reveal, mirrors the admin org-management flow)
+// Reset password: generates a one-time setup link the user visits to pick
+// their own new password — we never generate or display one on their behalf.
 const isResettingPassword = ref(false)
 const resetPasswordDialogOpen = ref(false)
 const resetPasswordResult = ref('')
@@ -86,7 +87,7 @@ async function resetPassword() {
   try {
     const response = await usersService.resetPassword(user.value.id)
     const data = (response.data as any).data || response.data
-    resetPasswordResult.value = data.password
+    resetPasswordResult.value = data.setup_link
     resetPasswordDialogOpen.value = true
   } catch (e) {
     toast.error(getErrorMessage(e, t('common.resetPasswordFailed')))

@@ -849,7 +849,9 @@ func (a *App) ResetUserPassword(r *fastglue.Request) error {
 		auditOrgID = orgID
 	}
 
-	newPassword := generateRandomString(16)
+	// Throwaway password — never shown. The user sets their own via the
+	// setup link, same as new-admin onboarding (see password_setup.go).
+	newPassword := generateRandomString(24)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		a.Log.Error("Failed to hash password", "error", err)
@@ -860,14 +862,21 @@ func (a *App) ResetUserPassword(r *fastglue.Request) error {
 		a.Log.Error("Failed to reset password", "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to reset password", nil, "")
 	}
+	user.PasswordHash = string(hashedPassword) // so the setup link's fingerprint matches what was just saved
 
 	a.logAudit(auditOrgID, currentUserID, "user", user.ID, models.AuditActionUpdated,
 		map[string]any{"action": "password_reset"},
 		map[string]any{"action": "password_reset", "target_email": user.Email})
 
+	setupLink, err := a.generatePasswordSetupToken(r, &user)
+	if err != nil {
+		a.Log.Error("Failed to generate password setup link", "error", err, "user_id", user.ID)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Password was reset but the setup link could not be generated — try again", nil, "")
+	}
+
 	return r.SendEnvelope(map[string]any{
-		"message":  "Password reset successfully. Share it with the user securely — it will not be shown again.",
-		"password": newPassword,
+		"message":    "Password reset. Share this setup link with the user — it will not be shown again.",
+		"setup_link": setupLink,
 	})
 }
 

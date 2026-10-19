@@ -174,7 +174,7 @@ export const usersService = {
   updateAvailability: (isAvailable: boolean) =>
     api.put('/me/availability', { is_available: isAvailable }),
   listMyOrganizations: () => api.get('/me/organizations'),
-  resetPassword: (id: string) => api.post<{ message: string; password: string }>(`/users/${id}/reset-password`),
+  resetPassword: (id: string) => api.post<{ message: string; setup_link: string }>(`/users/${id}/reset-password`),
 }
 
 export const apiKeysService = {
@@ -789,7 +789,7 @@ export const organizationsService = {
   create: (data: { name: string }) => api.post<Organization>('/organizations', data),
   // Super-admin cross-org management
   createWithAdmin: (data: { org_name: string; admin_email: string; admin_full_name: string; admin_password?: string }) =>
-    api.post<Organization & { admin_email: string; generated_password?: string }>('/organizations/with-admin', data),
+    api.post<Organization & { admin_email: string; setup_link?: string }>('/organizations/with-admin', data),
   update: (id: string, data: { name?: string }) => api.put<Organization>(`/organizations/${id}`, data),
   delete: (id: string) => api.delete(`/organizations/${id}`),
   suspend: (id: string) => api.post<{ message: string; suspended: boolean }>(`/organizations/${id}/suspend`),

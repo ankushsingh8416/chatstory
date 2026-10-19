@@ -202,15 +202,17 @@ function manageRolesAndPermissions() {
   window.location.href = '/settings/roles'
 }
 
-// --- Password reveal dialog (shared between create-with-admin and member reset-password) ---
+// --- Setup-link reveal dialog (shared between create-with-admin and member
+// reset-password) — the user sets their own password via this one-time
+// link; we never generate or display a password on their behalf.
 const passwordDialogOpen = ref(false)
 const passwordDialogEmail = ref('')
-const passwordDialogPassword = ref('')
+const passwordDialogLink = ref('')
 let passwordDialogOnClose: (() => void) | null = null
 
-function showPasswordDialog(email: string, password: string, onClose?: () => void) {
+function showPasswordDialog(email: string, setupLink: string, onClose?: () => void) {
   passwordDialogEmail.value = email
-  passwordDialogPassword.value = password
+  passwordDialogLink.value = setupLink
   passwordDialogOnClose = onClose || null
   passwordDialogOpen.value = true
 }
@@ -264,8 +266,8 @@ async function createOrg() {
     hasChanges.value = false
     toast.success(t('common.createdSuccess', { resource: t('resources.Organization') }))
 
-    if (created.generated_password) {
-      showPasswordDialog(created.admin_email, created.generated_password, () => {
+    if (created.setup_link) {
+      showPasswordDialog(created.admin_email, created.setup_link, () => {
         router.replace(`/admin/organizations/${created.id}`)
       })
     } else {
@@ -369,7 +371,7 @@ async function resetMemberPassword(member: OrganizationMember) {
   try {
     const response = await usersService.resetPassword(member.user_id)
     const data = (response.data as any).data || response.data
-    showPasswordDialog(member.email, data.password)
+    showPasswordDialog(member.email, data.setup_link)
   } catch (e) {
     toast.error(getErrorMessage(e, t('common.resetPasswordFailed')))
   } finally {
@@ -642,8 +644,8 @@ onMounted(async () => {
           <div class="space-y-2">
             <Label>{{ $t('common.temporaryPassword') }}</Label>
             <div class="flex gap-2">
-              <Input :model-value="passwordDialogPassword" readonly class="font-mono text-sm" />
-              <IconButton :icon="Copy" :label="$t('common.copy')" variant="outline" @click="copyToClipboard(passwordDialogPassword)" />
+              <Input :model-value="passwordDialogLink" readonly class="font-mono text-xs" />
+              <IconButton :icon="Copy" :label="$t('common.copy')" variant="outline" @click="copyToClipboard(passwordDialogLink)" />
             </div>
           </div>
         </div>

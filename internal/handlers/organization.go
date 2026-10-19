@@ -946,12 +946,14 @@ type CreateOrganizationWithAdminRequest struct {
 }
 
 // CreateOrganizationWithAdminResponse extends OrganizationResponse with the
-// newly created admin login. GeneratedPassword is populated exactly once,
-// only when the caller didn't supply admin_password themselves.
+// newly created admin login. SetupLink is populated exactly once, only when
+// the caller didn't supply admin_password themselves — share it with the
+// new admin so they can set their own password (nothing is generated or
+// shown on their behalf).
 type CreateOrganizationWithAdminResponse struct {
 	OrganizationResponse
-	AdminEmail        string `json:"admin_email"`
-	GeneratedPassword string `json:"generated_password,omitempty"`
+	AdminEmail string `json:"admin_email"`
+	SetupLink  string `json:"setup_link,omitempty"`
 }
 
 // CreateOrganizationWithAdmin lets a super admin provision a new organization
@@ -982,11 +984,14 @@ func (a *App) CreateOrganizationWithAdmin(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusConflict, "A user with this email already exists", nil, "")
 	}
 
-	generatedPassword := ""
+	// needsSetupLink: no password was supplied, so the admin sets their own
+	// via a one-time link rather than being handed a generated one. The
+	// password created here is a random throwaway — never shown, never
+	// usable to log in (it's immediately superseded once the link is used).
+	needsSetupLink := req.AdminPassword == ""
 	password := req.AdminPassword
 	if password == "" {
-		generatedPassword = generateRandomString(16)
-		password = generatedPassword
+		password = generateRandomString(24)
 	} else if len(password) < 8 {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "admin_password must be at least 8 characters", nil, "")
 	}
@@ -1084,7 +1089,16 @@ func (a *App) CreateOrganizationWithAdmin(r *fastglue.Request) error {
 	resp := CreateOrganizationWithAdminResponse{
 		OrganizationResponse: organizationToResponse(org),
 		AdminEmail:           req.AdminEmail,
-		GeneratedPassword:    generatedPassword,
+	}
+	if needsSetupLink {
+		setupLink, err := a.generatePasswordSetupToken(r, &adminUser)
+		if err != nil {
+			a.Log.Error("Failed to generate password setup link", "error", err, "user_id", adminUser.ID)
+			// The org and admin login already exist — don't fail the whole
+			// request over the link; the admin can still use "Reset Password" from the org page.
+		} else {
+			resp.SetupLink = setupLink
+		}
 	}
 	return r.SendEnvelope(resp)
 }
