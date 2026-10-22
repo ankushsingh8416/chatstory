@@ -44,7 +44,10 @@ type KnowledgeBase struct {
 	// the fixed shape this app's own ingestion pipeline creates - but are
 	// overridable when CollectionName points at an org's pre-existing table
 	// with different column names (every org's own schema differs).
-	ContentColumn   string `gorm:"size:100;default:'content'" json:"content_column"`
+	// size:1000, not 100 - ContentColumn can be a comma-joined list of several
+	// column names when a table's content is spread across multiple text
+	// columns (see tableColumns.content_columns.join(',') on the frontend).
+	ContentColumn   string `gorm:"size:1000;default:'content'" json:"content_column"`
 	EmbeddingColumn string `gorm:"size:100;default:'embedding'" json:"embedding_column"`
 	// ExtraTables lists additional existing tables (beyond CollectionName)
 	// to search alongside the primary one, for orgs whose data is spread
