@@ -533,9 +533,10 @@ const fetchHealth = async () => {
   if (!canViewHealth.value) return
   isHealthLoading.value = true
   try {
-    const { data } = await healthService.overview()
-    healthAccounts.value = data.accounts
-    healthCheckedAt.value = data.checked_at
+    const response = await healthService.overview()
+    const data = (response.data as any).data || {}
+    healthAccounts.value = data.accounts || []
+    healthCheckedAt.value = data.checked_at || null
   } catch (error) {
     console.error('Failed to load account health:', error)
   } finally {
