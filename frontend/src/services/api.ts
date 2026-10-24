@@ -192,6 +192,22 @@ export const accountsService = {
   list: () => api.get('/accounts')
 }
 
+export interface AccountHealthStatus {
+  account_id: string
+  account_name: string
+  token_valid: boolean
+  token_error?: string
+  chatbot_enabled: boolean
+  ai_enabled: boolean
+  failed_messages_24h: number
+  stuck_contacts: number
+}
+
+export const healthService = {
+  overview: () =>
+    api.get<{ accounts: AccountHealthStatus[]; checked_at: string }>('/dashboard/account-health')
+}
+
 export const contactsService = {
   list: (params?: { search?: string; page?: number; limit?: number; tags?: string }) =>
     api.get('/contacts', { params }),

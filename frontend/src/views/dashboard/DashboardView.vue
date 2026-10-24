@@ -34,7 +34,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { widgetsService, type DashboardWidget, type WidgetData, type LayoutItem } from '@/services/api'
+import { widgetsService, healthService, type DashboardWidget, type WidgetData, type LayoutItem, type AccountHealthStatus } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import {
   MessageSquare,
@@ -65,7 +65,10 @@ import {
   Zap,
   Shield,
   LineChart,
-  Tags
+  Tags,
+  AlertTriangle,
+  CheckCircle2,
+  RefreshCw
 } from 'lucide-vue-next'
 // Centralized Chart.js setup (registered once)
 import { Line, Bar, Pie } from '@/lib/charts'
@@ -516,6 +519,30 @@ const fetchDataSources = async () => {
   }
 }
 
+// System Health card — surfaces broken accounts (dead token, chatbot off,
+// recent send failures, contacts stuck in the agent queue) right when the
+// dashboard loads instead of only after someone reports "AI not replying".
+const canViewHealth = computed(() => authStore.hasPermission('accounts', 'read'))
+const healthAccounts = ref<AccountHealthStatus[]>([])
+const isHealthLoading = ref(false)
+const healthCheckedAt = ref<string | null>(null)
+const hasHealthIssue = (acc: AccountHealthStatus) =>
+  !acc.token_valid || !acc.chatbot_enabled || acc.failed_messages_24h > 0 || acc.stuck_contacts > 0
+
+const fetchHealth = async () => {
+  if (!canViewHealth.value) return
+  isHealthLoading.value = true
+  try {
+    const { data } = await healthService.overview()
+    healthAccounts.value = data.accounts
+    healthCheckedAt.value = data.checked_at
+  } catch (error) {
+    console.error('Failed to load account health:', error)
+  } finally {
+    isHealthLoading.value = false
+  }
+}
+
 const fetchDashboardData = async () => {
   isLoading.value = true
   try {
@@ -698,6 +725,7 @@ watch(() => widgetForm.value.display_type, (newVal) => {
 
 onMounted(() => {
   fetchDashboardData()
+  fetchHealth()
 })
 </script>
 
@@ -750,6 +778,38 @@ onMounted(() => {
     <!-- Content -->
     <ScrollArea class="flex-1">
       <div class="p-6 space-y-6">
+        <!-- System Health -->
+        <div v-if="canViewHealth && healthAccounts.length > 0" class="rounded-xl border border-white/[0.08] bg-white/[0.02] light:bg-white light:border-gray-200">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] light:border-gray-200">
+            <div class="flex items-center gap-2">
+              <ShieldCheck class="h-4 w-4 text-white/50 light:text-gray-400" />
+              <h2 class="text-sm font-medium text-white light:text-gray-900">{{ $t('dashboard.systemHealth') }}</h2>
+            </div>
+            <Button variant="ghost" size="sm" :disabled="isHealthLoading" @click="fetchHealth" class="h-7 px-2 text-white/50 hover:text-white light:text-gray-400 light:hover:text-gray-700">
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': isHealthLoading }" />
+            </Button>
+          </div>
+          <div class="divide-y divide-white/[0.06] light:divide-gray-100">
+            <div v-for="acc in healthAccounts" :key="acc.account_id" class="flex items-start gap-3 px-5 py-3">
+              <component
+                :is="hasHealthIssue(acc) ? AlertTriangle : CheckCircle2"
+                class="h-4 w-4 mt-0.5 shrink-0"
+                :class="hasHealthIssue(acc) ? 'text-amber-400' : 'text-emerald-400'"
+              />
+              <div class="min-w-0 flex-1">
+                <p class="text-sm text-white/90 light:text-gray-900">{{ acc.account_name }}</p>
+                <ul v-if="hasHealthIssue(acc)" class="mt-1 space-y-0.5 text-xs text-amber-400/90">
+                  <li v-if="!acc.token_valid">{{ $t('dashboard.healthTokenInvalid') }}{{ acc.token_error ? `: ${acc.token_error}` : '' }}</li>
+                  <li v-if="!acc.chatbot_enabled">{{ $t('dashboard.healthChatbotOff') }}</li>
+                  <li v-if="acc.failed_messages_24h > 0">{{ $t('dashboard.healthFailedMessages', { n: acc.failed_messages_24h }) }}</li>
+                  <li v-if="acc.stuck_contacts > 0">{{ $t('dashboard.healthStuckContacts', { n: acc.stuck_contacts }) }}</li>
+                </ul>
+                <p v-else class="text-xs text-white/40 light:text-gray-400">{{ $t('dashboard.healthOk') }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Loading Skeleton -->
         <div v-if="isLoading" class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div v-for="i in 4" :key="i" class="rounded-xl border border-white/[0.08] bg-white/[0.02] p-6 light:bg-white light:border-gray-200">

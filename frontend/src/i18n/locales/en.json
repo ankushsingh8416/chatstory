@@ -1625,6 +1625,12 @@
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "Customizable analytics overview",
+    "systemHealth": "System Health",
+    "healthTokenInvalid": "Access token invalid",
+    "healthChatbotOff": "Chatbot is disabled for this account",
+    "healthFailedMessages": "{n} messages failed to send in the last 24h",
+    "healthStuckContacts": "{n} contacts stuck waiting for an agent",
+    "healthOk": "All checks passing",
     "addWidget": "Add Widget",
     "createWidget": "Create Widget",
     "editWidget": "Edit Widget",
