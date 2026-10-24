@@ -54,6 +54,7 @@ func (a *App) GetHealthOverview(r *fastglue.Request) error {
 			AccountName: acc.Name,
 		}
 
+		a.decryptAccountSecrets(&acc)
 		if err := a.validateAccountCredentials(acc.PhoneID, acc.BusinessID, acc.AccessToken, acc.APIVersion); err != nil {
 			status.TokenError = err.Error()
 		} else {
