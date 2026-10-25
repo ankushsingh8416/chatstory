@@ -287,19 +287,27 @@ function ensureStartNode() {
 }
 
 onConnect((params) => {
+  // BaseNode.vue hardcodes every node's target (top) handle to id="input" —
+  // it's never a real branch condition. Vue Flow can still report it as
+  // params.sourceHandle if the drag was grabbed from that dot, which would
+  // otherwise get persisted as an edge condition no node executor ever
+  // emits, silently dead-ending the flow. Normalize it away here.
+  const sourceHandle = params.sourceHandle && params.sourceHandle !== 'input' ? params.sourceHandle : undefined
+
   // Enforce single edge per source handle.
   const existing = edges.value.filter(
-    (e) => e.source === params.source && e.sourceHandle === params.sourceHandle,
+    (e) => e.source === params.source && e.sourceHandle === sourceHandle,
   )
   if (existing.length > 0) removeEdges(existing)
 
   addEdges([
     {
       ...params,
+      sourceHandle,
       type: 'default',
       animated: true,
       markerEnd: MarkerType.ArrowClosed,
-      label: params.sourceHandle || 'default',
+      label: sourceHandle || 'default',
     },
   ])
   spreadParallelLabels()
@@ -396,11 +404,18 @@ function toGraphPayload(): ChatFlowGraph {
     config: n.data?.config || {},
   }))
 
-  const ivrEdges: ChatEdge[] = edges.value.map((e) => ({
-    from: e.source,
-    to: e.target,
-    condition: e.sourceHandle || (e as any).label || 'default',
-  }))
+  const ivrEdges: ChatEdge[] = edges.value.map((e) => {
+    // "input" is BaseNode's reserved target-handle id, never a real branch
+    // condition — see the comment in onConnect. Strip it here too so a
+    // stale edge loaded from an older save (before that normalization
+    // existed) self-heals the next time this flow is saved.
+    const raw = e.sourceHandle || (e as any).label
+    return {
+      from: e.source,
+      to: e.target,
+      condition: raw && raw !== 'input' ? raw : 'default',
+    }
+  })
 
   // Entry node is always the start sentinel when present. Fall back to
   // the node without incoming edges for any legacy graph that doesn't
@@ -476,6 +491,11 @@ function loadGraph(graph: ChatFlowGraph) {
     graph.nodes.filter((n) => n.type === 'buttons').map((n) => n.id),
   )
   const normalizeCondition = (e: ChatEdge) => {
+    // Self-heal edges saved with "input" as the condition — BaseNode's
+    // reserved target-handle id, never a real outcome any node executor
+    // emits (see the onConnect comment). Edges like this dead-end the flow
+    // right after the node that produced them.
+    if (e.condition === 'input') return 'default'
     if (
       e.condition !== 'default' &&
       e.condition &&
