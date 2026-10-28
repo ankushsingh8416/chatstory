@@ -54,7 +54,13 @@ const generalSettings = ref({
   razorpay_key_secret: '',
   has_razorpay_key_secret: false,
   razorpay_webhook_secret: '',
-  has_razorpay_webhook_secret: false
+  has_razorpay_webhook_secret: false,
+  salesforce_enabled: false,
+  salesforce_client_id: '',
+  salesforce_client_secret: '',
+  has_salesforce_client_secret: false,
+  salesforce_auth_url: '',
+  salesforce_lead_api_url: ''
 })
 
 const isUploadingLogo = ref(false)
@@ -124,7 +130,13 @@ onMounted(async () => {
         razorpay_key_secret: '',
         has_razorpay_key_secret: orgData.settings?.has_razorpay_key_secret || false,
         razorpay_webhook_secret: '',
-        has_razorpay_webhook_secret: orgData.settings?.has_razorpay_webhook_secret || false
+        has_razorpay_webhook_secret: orgData.settings?.has_razorpay_webhook_secret || false,
+        salesforce_enabled: orgData.settings?.salesforce_enabled || false,
+        salesforce_client_id: orgData.settings?.salesforce_client_id || '',
+        salesforce_client_secret: '',
+        has_salesforce_client_secret: orgData.settings?.has_salesforce_client_secret || false,
+        salesforce_auth_url: orgData.settings?.salesforce_auth_url || '',
+        salesforce_lead_api_url: orgData.settings?.salesforce_lead_api_url || ''
       }
       callingSettings.value = {
         calling_enabled: orgData.settings?.calling_enabled || false,
@@ -180,6 +192,15 @@ async function saveGeneralSettings() {
         payload.razorpay_webhook_secret = generalSettings.value.razorpay_webhook_secret
       }
     }
+    if (canWriteAccounts.value) {
+      payload.salesforce_enabled = generalSettings.value.salesforce_enabled
+      payload.salesforce_client_id = generalSettings.value.salesforce_client_id
+      payload.salesforce_auth_url = generalSettings.value.salesforce_auth_url
+      payload.salesforce_lead_api_url = generalSettings.value.salesforce_lead_api_url
+      if (generalSettings.value.salesforce_client_secret) {
+        payload.salesforce_client_secret = generalSettings.value.salesforce_client_secret
+      }
+    }
     await organizationService.updateSettings(payload)
     toast.success(t('settings.generalSaved'))
     // Clear secret inputs after save
@@ -187,6 +208,7 @@ async function saveGeneralSettings() {
     generalSettings.value.openai_embeddings_key = ''
     generalSettings.value.razorpay_key_secret = ''
     generalSettings.value.razorpay_webhook_secret = ''
+    generalSettings.value.salesforce_client_secret = ''
     // Refresh organization settings to update has_*_secret status
     const orgResponse = await organizationService.getSettings()
     const orgData = orgResponse.data.data || orgResponse.data
@@ -195,6 +217,7 @@ async function saveGeneralSettings() {
       generalSettings.value.has_openai_embeddings_key = orgData.settings?.has_openai_embeddings_key || false
       generalSettings.value.has_razorpay_key_secret = orgData.settings?.has_razorpay_key_secret || false
       generalSettings.value.has_razorpay_webhook_secret = orgData.settings?.has_razorpay_webhook_secret || false
+      generalSettings.value.has_salesforce_client_secret = orgData.settings?.has_salesforce_client_secret || false
     }
     refreshActivityLog(generalLogKey)
   } catch (error) {
@@ -545,6 +568,50 @@ function togglePlayAudio(type: 'hold_music' | 'ringback') {
                     :placeholder="generalSettings.has_razorpay_webhook_secret ? '••••••••••••' : 'Enter Razorpay Webhook Secret'"
                   />
                   <p class="text-xs text-white/40 light:text-gray-500">{{ $t('settings.razorpayWebhookSecretHint', 'Set this webhook URL in your Razorpay dashboard, subscribed to the payment_link.paid event: ') }}<code class="text-[11px]">{{ razorpayWebhookURL }}</code></p>
+                </div>
+                <div class="flex justify-end">
+                  <Button variant="outline" size="sm" class="bg-white/[0.04] border-white/[0.1] text-white/70 hover:bg-white/[0.08] hover:text-white light:bg-white light:border-gray-200 light:text-gray-700 light:hover:bg-gray-50" @click="saveGeneralSettings" :disabled="isSubmitting">
+                    <Loader2 v-if="isSubmitting" class="mr-2 h-4 w-4 animate-spin" />
+                    {{ $t('settings.save') }}
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <!-- Salesforce Lead Capture Card (Gated on canWriteAccounts) -->
+            <div v-if="canWriteAccounts" class="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.02] light:bg-white light:border-gray-200">
+              <div class="p-6 pb-3">
+                <h3 class="text-lg font-semibold text-white light:text-gray-900">{{ $t('settings.salesforce', 'Salesforce Lead Capture') }}</h3>
+                <p class="text-sm text-white/40 light:text-gray-500">{{ $t('settings.salesforceDesc', 'Send every WhatsApp enquiry to Salesforce as a Lead and keep the conversation history synced there.') }}</p>
+              </div>
+              <div class="p-6 pt-3 space-y-4">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="font-medium text-white light:text-gray-900">{{ $t('settings.salesforceEnabled', 'Enabled') }}</p>
+                    <p class="text-sm text-white/40 light:text-gray-500">{{ $t('settings.salesforceEnabledDesc', 'Sync captured leads and messages to Salesforce.') }}</p>
+                  </div>
+                  <Switch :checked="generalSettings.salesforce_enabled" @update:checked="generalSettings.salesforce_enabled = $event" />
+                </div>
+                <Separator class="bg-white/[0.08] light:bg-gray-200" />
+                <div class="space-y-2">
+                  <Label for="salesforce_client_id" class="text-white/70 light:text-gray-700">{{ $t('settings.salesforceClientId', 'Connected App Client ID') }}</Label>
+                  <Input id="salesforce_client_id" v-model="generalSettings.salesforce_client_id" placeholder="3MVG9..." />
+                </div>
+                <div class="space-y-2">
+                  <Label for="salesforce_client_secret" class="text-white/70 light:text-gray-700">{{ $t('settings.salesforceClientSecret', 'Connected App Client Secret') }}</Label>
+                  <Input
+                    id="salesforce_client_secret"
+                    type="password"
+                    v-model="generalSettings.salesforce_client_secret"
+                    :placeholder="generalSettings.has_salesforce_client_secret ? '••••••••••••' : 'Enter Client Secret'"
+                  />
+                </div>
+                <div class="space-y-2">
+                  <Label for="salesforce_auth_url" class="text-white/70 light:text-gray-700">{{ $t('settings.salesforceAuthUrl', 'OAuth Token URL') }}</Label>
+                  <Input id="salesforce_auth_url" v-model="generalSettings.salesforce_auth_url" placeholder="https://.../services/oauth2/token" />
+                </div>
+                <div class="space-y-2">
+                  <Label for="salesforce_lead_api_url" class="text-white/70 light:text-gray-700">{{ $t('settings.salesforceLeadApiUrl', 'Lead API URL') }}</Label>
+                  <Input id="salesforce_lead_api_url" v-model="generalSettings.salesforce_lead_api_url" placeholder="https://.../services/apexrest/whatsapp/lead/v1/" />
                 </div>
                 <div class="flex justify-end">
                   <Button variant="outline" size="sm" class="bg-white/[0.04] border-white/[0.1] text-white/70 hover:bg-white/[0.08] hover:text-white light:bg-white light:border-gray-200 light:text-gray-700 light:hover:bg-gray-50" @click="saveGeneralSettings" :disabled="isSubmitting">

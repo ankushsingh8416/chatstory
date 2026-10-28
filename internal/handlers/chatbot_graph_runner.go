@@ -871,6 +871,22 @@ func (a *App) execChatWhatsAppFlow(node *ChatNode, ctx *chatNodeCtx) (nodeOutcom
 			ctx.session.SessionData = models.JSONB{}
 		}
 		maps.Copy(ctx.session.SessionData, ctx.flowResponseData)
+
+		// Lead capture hook: a submission carrying name+mobile is treated as
+		// a qualified enquiry and synced to Salesforce (see internal/salesforce
+		// and handlers/salesforce.go). No-op when the org hasn't configured
+		// the integration. Fire-and-forget so a slow/down Salesforce never
+		// delays the bot's next message.
+		if name := stringFromConfig(ctx.flowResponseData, "name"); name != "" {
+			if mobile := stringFromConfig(ctx.flowResponseData, "mobile"); mobile != "" {
+				email := stringFromConfig(ctx.flowResponseData, "email")
+				project := stringFromConfig(ctx.flowResponseData, "project")
+				message := stringFromConfig(ctx.flowResponseData, "message")
+				account, contact := ctx.account, ctx.contact
+				go a.syncLeadFirstContact(account.OrganizationID, contact, name, mobile, email, project, message)
+			}
+		}
+
 		return nodeOutcome{outcome: "default"}, nil
 	}
 

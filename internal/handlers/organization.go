@@ -81,6 +81,13 @@ type OrganizationSettings struct {
 	RazorpayKeyID            string `json:"razorpay_key_id"`
 	HasRazorpayKeySecret     bool   `json:"has_razorpay_key_secret"`
 	HasRazorpayWebhookSecret bool   `json:"has_razorpay_webhook_secret"`
+
+	// Salesforce Lead Capture (WhatsApp enquiries -> Salesforce Lead)
+	SalesforceEnabled    bool   `json:"salesforce_enabled"`
+	SalesforceClientID   string `json:"salesforce_client_id"`
+	HasSalesforceSecret  bool   `json:"has_salesforce_client_secret"`
+	SalesforceAuthURL    string `json:"salesforce_auth_url"`
+	SalesforceLeadAPIURL string `json:"salesforce_lead_api_url"`
 }
 
 // GetOrganizationSettings returns the organization settings
@@ -159,6 +166,21 @@ func (a *App) GetOrganizationSettings(r *fastglue.Request) error {
 		if v, ok := org.Settings["razorpay_webhook_secret_encrypted"].(string); ok && v != "" {
 			settings.HasRazorpayWebhookSecret = true
 		}
+		if v, ok := org.Settings["salesforce_enabled"].(bool); ok {
+			settings.SalesforceEnabled = v
+		}
+		if v, ok := org.Settings["salesforce_client_id"].(string); ok {
+			settings.SalesforceClientID = v
+		}
+		if v, ok := org.Settings["salesforce_client_secret_encrypted"].(string); ok && v != "" {
+			settings.HasSalesforceSecret = true
+		}
+		if v, ok := org.Settings["salesforce_auth_url"].(string); ok {
+			settings.SalesforceAuthURL = v
+		}
+		if v, ok := org.Settings["salesforce_lead_api_url"].(string); ok {
+			settings.SalesforceLeadAPIURL = v
+		}
 	}
 
 	return r.SendEnvelope(map[string]any{
@@ -175,23 +197,28 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 	}
 
 	var req struct {
-		MaskPhoneNumbers      *bool   `json:"mask_phone_numbers"`
-		Timezone              *string `json:"timezone"`
-		DateFormat            *string `json:"date_format"`
-		Name                  *string `json:"name"`
-		CallingEnabled        *bool   `json:"calling_enabled"`
-		MaxCallDuration       *int    `json:"max_call_duration"`
-		TransferTimeoutSecs   *int    `json:"transfer_timeout_secs"`
-		HoldMusicFile         *string `json:"hold_music_file"`
-		RingbackFile          *string `json:"ringback_file"`
-		MetaAppID             *string `json:"meta_app_id"`
-		MetaConfigID          *string `json:"meta_config_id"`
-		MetaAppSecret         *string `json:"meta_app_secret"`
-		OpenAIEmbeddingsKey   *string `json:"openai_embeddings_key"`
-		CODEnabled            *bool   `json:"cod_enabled"`
-		RazorpayKeyID         *string `json:"razorpay_key_id"`
-		RazorpayKeySecret     *string `json:"razorpay_key_secret"`
-		RazorpayWebhookSecret *string `json:"razorpay_webhook_secret"`
+		MaskPhoneNumbers       *bool   `json:"mask_phone_numbers"`
+		Timezone               *string `json:"timezone"`
+		DateFormat             *string `json:"date_format"`
+		Name                   *string `json:"name"`
+		CallingEnabled         *bool   `json:"calling_enabled"`
+		MaxCallDuration        *int    `json:"max_call_duration"`
+		TransferTimeoutSecs    *int    `json:"transfer_timeout_secs"`
+		HoldMusicFile          *string `json:"hold_music_file"`
+		RingbackFile           *string `json:"ringback_file"`
+		MetaAppID              *string `json:"meta_app_id"`
+		MetaConfigID           *string `json:"meta_config_id"`
+		MetaAppSecret          *string `json:"meta_app_secret"`
+		OpenAIEmbeddingsKey    *string `json:"openai_embeddings_key"`
+		CODEnabled             *bool   `json:"cod_enabled"`
+		RazorpayKeyID          *string `json:"razorpay_key_id"`
+		RazorpayKeySecret      *string `json:"razorpay_key_secret"`
+		RazorpayWebhookSecret  *string `json:"razorpay_webhook_secret"`
+		SalesforceEnabled      *bool   `json:"salesforce_enabled"`
+		SalesforceClientID     *string `json:"salesforce_client_id"`
+		SalesforceClientSecret *string `json:"salesforce_client_secret"`
+		SalesforceAuthURL      *string `json:"salesforce_auth_url"`
+		SalesforceLeadAPIURL   *string `json:"salesforce_lead_api_url"`
 	}
 
 	if err := json.Unmarshal(r.RequestCtx.PostBody(), &req); err != nil {
@@ -220,6 +247,13 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 	commerceTouched := req.CODEnabled != nil || req.RazorpayKeyID != nil || req.RazorpayKeySecret != nil || req.RazorpayWebhookSecret != nil
 	if commerceTouched {
 		if err := a.requirePermission(r, userID, models.ResourceOrders, models.ActionWrite); err != nil {
+			return nil
+		}
+	}
+	// Salesforce credentials are an org-wide integration secret, same gate as Meta app creds.
+	salesforceTouched := req.SalesforceEnabled != nil || req.SalesforceClientID != nil || req.SalesforceClientSecret != nil || req.SalesforceAuthURL != nil || req.SalesforceLeadAPIURL != nil
+	if salesforceTouched {
+		if err := a.requirePermission(r, userID, models.ResourceAccounts, models.ActionWrite); err != nil {
 			return nil
 		}
 	}
@@ -307,6 +341,26 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to update settings", nil, "")
 		}
 		org.Settings["razorpay_webhook_secret_encrypted"] = encSecret
+	}
+	if req.SalesforceEnabled != nil {
+		org.Settings["salesforce_enabled"] = *req.SalesforceEnabled
+	}
+	if req.SalesforceClientID != nil {
+		org.Settings["salesforce_client_id"] = *req.SalesforceClientID
+	}
+	if req.SalesforceClientSecret != nil && *req.SalesforceClientSecret != "" {
+		encSecret, errEnc := crypto.Encrypt(*req.SalesforceClientSecret, a.Config.App.EncryptionKey)
+		if errEnc != nil {
+			a.Log.Error("Failed to encrypt Salesforce client secret", "error", errEnc)
+			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to update settings", nil, "")
+		}
+		org.Settings["salesforce_client_secret_encrypted"] = encSecret
+	}
+	if req.SalesforceAuthURL != nil {
+		org.Settings["salesforce_auth_url"] = *req.SalesforceAuthURL
+	}
+	if req.SalesforceLeadAPIURL != nil {
+		org.Settings["salesforce_lead_api_url"] = *req.SalesforceLeadAPIURL
 	}
 
 	if err := a.DB.Save(&org).Error; err != nil {

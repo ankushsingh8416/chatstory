@@ -486,6 +486,24 @@ func (a *App) finalizeMessageSend(msg *models.Message, req OutgoingMessageReques
 
 // broadcastNewMessage broadcasts a new message via WebSocket
 func (a *App) broadcastNewMessage(orgID uuid.UUID, msg *models.Message, contact *models.Contact) {
+	// Every message in the app funnels through this one function regardless
+	// of origin (webhook inbound, chatbot/AI reply, agent manual reply) —
+	// the single place to mirror it to Salesforce for contacts with a
+	// tracked Lead. No-op (checked inside) for everyone else. Runs before
+	// the WSHub nil-check since it doesn't depend on it.
+	if msg.Content != "" {
+		direction := "Outbound"
+		sender := "Whatomate"
+		if msg.Direction == models.DirectionIncoming {
+			direction = "Inbound"
+			sender = contact.ProfileName
+			if sender == "" {
+				sender = contact.PhoneNumber
+			}
+		}
+		go a.syncMessageToSalesforce(orgID, contact, direction, sender, msg.Content, msg.WhatsAppMessageID)
+	}
+
 	if a.WSHub == nil {
 		return
 	}
