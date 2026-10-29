@@ -232,6 +232,12 @@ func (a *App) executeChatNode(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, er
 // can interpolate captured variables (e.g. "Hi {{customer_name}}").
 // Config: { "message": "..." } or "text" for compatibility.
 func (a *App) execChatMessage(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, error) {
+	// A plain message node is also a valid place for a flow to end a lead
+	// capture without handing off to a human (see maybeSyncLeadFromSessionData
+	// — same hook as the Transfer node, for flows that want the chatbot to
+	// stay active afterward instead of pausing for an agent).
+	a.maybeSyncLeadFromSessionData(ctx)
+
 	text := stringFromConfig(node.Config, "message", "text")
 	if text == "" {
 		return nodeOutcome{outcome: "default"}, nil
@@ -242,6 +248,28 @@ func (a *App) execChatMessage(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, er
 	}
 	a.logSessionMessage(ctx.session.ID, models.DirectionOutgoing, text, node.ID)
 	return nodeOutcome{outcome: "default"}, nil
+}
+
+// maybeSyncLeadFromSessionData fires the Salesforce lead-capture hook when
+// SessionData carries a captured "name" — the bar used by both the Transfer
+// node (hand off to a human) and the plain Message node (stay active). It's
+// a no-op, repeatable call: Salesforce's own API upserts by mobile/email, so
+// firing it from more than one end-of-capture node in the same run is safe,
+// not a duplicate-lead risk.
+func (a *App) maybeSyncLeadFromSessionData(ctx *chatNodeCtx) {
+	name := stringFromConfig(ctx.session.SessionData, "name")
+	if name == "" {
+		return
+	}
+	mobile := stringFromConfig(ctx.session.SessionData, "mobile")
+	if mobile == "" {
+		mobile = ctx.contact.PhoneNumber
+	}
+	email := stringFromConfig(ctx.session.SessionData, "email")
+	project := stringFromConfig(ctx.session.SessionData, "project")
+	message := stringFromConfig(ctx.session.SessionData, "message", "query")
+	account, contact := ctx.account, ctx.contact
+	go a.syncLeadFirstContact(account.OrganizationID, contact, name, mobile, email, project, message)
 }
 
 // execChatButtons sends interactive buttons on first entry (yielding to
@@ -708,22 +736,7 @@ func (a *App) execChatAIResponse(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome,
 //	  "notes":   "Last seen {{last_query}}"      // optional; templated
 //	}
 func (a *App) execChatTransfer(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, error) {
-	// Lead capture hook: a transfer-to-human handoff that followed a "name"
-	// capture step (whichever node set it — a Text prompt or a WA Flow) is
-	// treated as a qualified enquiry reaching a human, same bar as the
-	// WhatsApp Flow hook in execChatWhatsAppFlow. Mobile isn't asked again
-	// here since it's already the WhatsApp session's own phone number.
-	if name := stringFromConfig(ctx.session.SessionData, "name"); name != "" {
-		mobile := stringFromConfig(ctx.session.SessionData, "mobile")
-		if mobile == "" {
-			mobile = ctx.contact.PhoneNumber
-		}
-		email := stringFromConfig(ctx.session.SessionData, "email")
-		project := stringFromConfig(ctx.session.SessionData, "project")
-		message := stringFromConfig(ctx.session.SessionData, "message", "query")
-		account, contact := ctx.account, ctx.contact
-		go a.syncLeadFirstContact(account.OrganizationID, contact, name, mobile, email, project, message)
-	}
+	a.maybeSyncLeadFromSessionData(ctx)
 
 	if body := stringFromConfig(node.Config, "body", "message", "text"); body != "" {
 		message := processTemplate(body, ctx.session.SessionData)
