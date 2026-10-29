@@ -316,8 +316,15 @@ func (a *App) execChatButtons(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, er
 func (a *App) execChatPrompt(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, error) {
 	body := stringFromConfig(node.Config, "body", "message", "text")
 
-	// No input yet → send prompt and wait.
-	if !ctx.consumed && ctx.userInput == "" {
+	// Send this node's own prompt and wait whenever it hasn't yet received
+	// a reply meant for it: either there's no input at all (first node
+	// touched this run), or an earlier blocking node in the same non-blocking
+	// chain already consumed ctx.userInput for itself — in which case this
+	// node is being visited for the first time too and must ask its own
+	// question rather than silently treating that stale input as its own
+	// answer (or, worse, doing nothing — see issue where a Buttons→Prompt
+	// chain in the same turn dropped the second node's prompt entirely).
+	if ctx.consumed || ctx.userInput == "" {
 		if body == "" {
 			return nodeOutcome{}, fmt.Errorf("prompt node %q has no body configured", node.ID)
 		}
@@ -326,12 +333,6 @@ func (a *App) execChatPrompt(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, err
 			return nodeOutcome{}, fmt.Errorf("send prompt: %w", err)
 		}
 		a.logSessionMessage(ctx.session.ID, models.DirectionOutgoing, rendered, node.ID)
-		return nodeOutcome{yield: true}, nil
-	}
-
-	if ctx.consumed {
-		// Input was already consumed by an earlier blocking node in this
-		// run — defensive guard. Treat as fresh entry.
 		return nodeOutcome{yield: true}, nil
 	}
 

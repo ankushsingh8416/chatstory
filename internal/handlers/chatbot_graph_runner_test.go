@@ -478,6 +478,64 @@ func TestRunChatGraph_Prompt_HappyPath(t *testing.T) {
 	assert.Equal(t, 0, session.StepRetries, "retries should reset on valid input")
 }
 
+// TestRunChatGraph_Prompt_SendsOwnPromptWhenChainedAfterButtons is a
+// regression test: a Buttons node's "button:x" edge leading straight to a
+// Prompt node, resolved within the SAME inbound (non-blocking chain), must
+// still send the Prompt node's own body and yield — not silently do
+// nothing because ctx.consumed was already set true by the Buttons node
+// that fired earlier in this same run. See the fix in execChatPrompt.
+func TestRunChatGraph_Prompt_SendsOwnPromptWhenChainedAfterButtons(t *testing.T) {
+	app, org, account, contact, session := newGraphTestFixtures(t)
+
+	flow := &models.ChatbotFlow{
+		BaseModel:       models.BaseModel{ID: uuid.New()},
+		OrganizationID:  org.ID,
+		WhatsAppAccount: account.Name,
+		Name:            "buttons-then-prompt",
+		IsEnabled:       true,
+		Graph: models.JSONB{
+			"version":    2,
+			"entry_node": "b1",
+			"nodes": []any{
+				map[string]any{
+					"id": "b1", "type": "buttons", "label": "choose",
+					"config": map[string]any{
+						"body":    "Pick a budget",
+						"buttons": []any{map[string]any{"id": "b10_15", "title": "10 Cr - 15 Cr"}},
+					},
+				},
+				map[string]any{
+					"id": "p1", "type": "prompt", "label": "name",
+					"config": map[string]any{"body": "What is your full name?", "store_as": "name"},
+				},
+				map[string]any{"id": "e1", "type": "end", "label": "done"},
+			},
+			"edges": []any{
+				map[string]any{"from": "b1", "to": "p1", "condition": "button:b10_15"},
+				map[string]any{"from": "p1", "to": "e1", "condition": "default"},
+			},
+		},
+	}
+	require.NoError(t, app.DB.Create(flow).Error)
+
+	// Trigger → b1 sends buttons and yields.
+	require.NoError(t, app.runChatGraph(account, contact, session, flow, "start", "", nil))
+
+	// Click the budget button → b1 consumes it and advances to p1 within
+	// this same inbound. p1 must send its own prompt and yield here.
+	require.NoError(t, app.runChatGraph(account, contact, session, flow, "10 Cr - 15 Cr", "b10_15", nil))
+	require.NoError(t, app.DB.First(session, session.ID).Error)
+	assert.Equal(t, "p1", session.CurrentStep, "should park at the prompt node, waiting for the name")
+	assert.Equal(t, models.SessionStatusActive, session.Status)
+
+	var sentCount int64
+	app.DB.Model(&models.Message{}).
+		Where("contact_id = ? AND direction = ? AND content = ?",
+			contact.ID, models.DirectionOutgoing, "What is your full name?").
+		Count(&sentCount)
+	assert.Equal(t, int64(1), sentCount, "the prompt node's own body must actually be sent, not silently skipped")
+}
+
 // TestRunChatGraph_Prompt_RetryOnInvalid: invalid input re-sends the error
 // and stays at the prompt node.
 func TestRunChatGraph_Prompt_RetryOnInvalid(t *testing.T) {
