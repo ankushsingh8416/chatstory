@@ -817,13 +817,57 @@ func TestMatchFlowTrigger_Match(t *testing.T) {
 	}
 	require.NoError(t, app.DB.Create(flow).Error)
 
-	result := app.matchFlowTrigger(org.ID, "I want to order")
+	result := app.matchFlowTrigger(org.ID, "I want to order", false)
 	require.NotNil(t, result)
 	assert.Equal(t, flow.ID, result.ID)
 
 	// No match
-	noMatch := app.matchFlowTrigger(org.ID, "hello there")
+	noMatch := app.matchFlowTrigger(org.ID, "hello there", false)
 	assert.Nil(t, noMatch)
+}
+
+// TestMatchFlowTrigger_Wildcard: a "*" trigger keyword fires on a new
+// session's first message regardless of its text, but never for a
+// returning contact's message — and an explicit keyword on another flow
+// still wins over the wildcard even on a new session.
+func TestMatchFlowTrigger_Wildcard(t *testing.T) {
+	app := newProcessorTestApp(t)
+	org, account := createProcessorTestOrg(t, app)
+
+	welcome := &models.ChatbotFlow{
+		BaseModel:       models.BaseModel{ID: uuid.New()},
+		OrganizationID:  org.ID,
+		WhatsAppAccount: account.Name,
+		Name:            "Welcome",
+		TriggerKeywords: models.StringArray{"*"},
+		IsEnabled:       true,
+	}
+	require.NoError(t, app.DB.Create(welcome).Error)
+
+	order := &models.ChatbotFlow{
+		BaseModel:       models.BaseModel{ID: uuid.New()},
+		OrganizationID:  org.ID,
+		WhatsAppAccount: account.Name,
+		Name:            "Order Flow",
+		TriggerKeywords: models.StringArray{"order"},
+		IsEnabled:       true,
+	}
+	require.NoError(t, app.DB.Create(order).Error)
+
+	// New session, unrelated text → wildcard flow fires.
+	result := app.matchFlowTrigger(org.ID, "anything at all", true)
+	require.NotNil(t, result)
+	assert.Equal(t, welcome.ID, result.ID)
+
+	// New session, text matching another flow's explicit keyword → that
+	// flow wins over the wildcard.
+	explicit := app.matchFlowTrigger(org.ID, "I want to order", true)
+	require.NotNil(t, explicit)
+	assert.Equal(t, order.ID, explicit.ID)
+
+	// Returning contact (not a new session) → wildcard must not fire.
+	notNew := app.matchFlowTrigger(org.ID, "anything at all", false)
+	assert.Nil(t, notNew)
 }
 
 // =============================================================================

@@ -327,7 +327,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 	}
 
 	// Try to match flow trigger keywords first (before greeting to avoid duplicate messages)
-	if flow := a.matchFlowTrigger(account.OrganizationID, messageText); flow != nil {
+	if flow := a.matchFlowTrigger(account.OrganizationID, messageText, isNewSession); flow != nil {
 		if flow.Graph == nil {
 			a.Log.Error("Triggered chatbot flow has no v2 graph; ignoring", "flow", flow.ID)
 			return
@@ -768,8 +768,19 @@ func (a *App) logSessionMessage(sessionID uuid.UUID, direction models.Direction,
 	}
 }
 
-// matchFlowTrigger checks if the message triggers any flow
-func (a *App) matchFlowTrigger(orgID uuid.UUID, messageText string) *models.ChatbotFlow {
+// flowTriggerWildcard, used as a flow's trigger keyword, means "start this
+// flow on a brand-new session's first message, regardless of what it says"
+// — e.g. a persistent welcome menu, instead of chatbot_settings' plain-text
+// DefaultResponse greeting. Scoped to isNewSession so it can't hijack every
+// message a returning contact sends.
+const flowTriggerWildcard = "*"
+
+// matchFlowTrigger checks if the message triggers any flow. Explicit
+// keywords (across every flow) are checked first so a new session's first
+// message can still reach a more specific flow (e.g. "enquiry") instead of
+// always falling into a wildcard-triggered one; only once nothing explicit
+// matches does a wildcard flow get a chance, and only for new sessions.
+func (a *App) matchFlowTrigger(orgID uuid.UUID, messageText string, isNewSession bool) *models.ChatbotFlow {
 	// Use cached flows (includes steps)
 	flows, err := a.getChatbotFlowsCached(orgID)
 	if err != nil {
@@ -781,11 +792,25 @@ func (a *App) matchFlowTrigger(orgID uuid.UUID, messageText string) *models.Chat
 
 	for _, flow := range flows {
 		for _, keyword := range flow.TriggerKeywords {
+			if keyword == flowTriggerWildcard {
+				continue
+			}
 			if containsKeywordWord(messageLower, keyword) {
 				return &flow
 			}
 		}
 	}
+
+	if isNewSession {
+		for _, flow := range flows {
+			for _, keyword := range flow.TriggerKeywords {
+				if keyword == flowTriggerWildcard {
+					return &flow
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
