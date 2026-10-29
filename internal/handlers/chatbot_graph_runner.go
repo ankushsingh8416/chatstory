@@ -272,6 +272,33 @@ func (a *App) maybeSyncLeadFromSessionData(ctx *chatNodeCtx) {
 	go a.syncLeadFirstContact(account.OrganizationID, contact, name, mobile, email, project, message)
 }
 
+// aiInterrupt answers an off-topic reply at a blocking node (one expecting
+// a button click, a form submission, or input matching a validation regex)
+// using the chatbot's own configured AI, instead of leaving the customer's
+// actual question unanswered while the node just re-asks for what it
+// wants. Returns false (a silent no-op) when AI isn't configured for this
+// account, or the call fails — callers fall through to their normal
+// re-prompt either way, so this is always safe to call speculatively.
+func (a *App) aiInterrupt(ctx *chatNodeCtx, userMessage string) bool {
+	if userMessage == "" {
+		return false
+	}
+	settings, err := a.getChatbotSettingsCached(ctx.account.OrganizationID, ctx.account.Name)
+	if err != nil || !settings.AI.Enabled || settings.AI.Provider == "" || settings.AI.APIKey == "" {
+		return false
+	}
+	answer, err := a.generateAIResponse(settings, ctx.session, userMessage)
+	if err != nil || answer == "" {
+		return false
+	}
+	if err := a.sendAndSaveTextMessage(ctx.account, ctx.contact, answer); err != nil {
+		a.Log.Error("ai interrupt failed to send", "session", ctx.session.ID, "error", err)
+		return false
+	}
+	a.logSessionMessage(ctx.session.ID, models.DirectionOutgoing, answer, "ai_interrupt")
+	return true
+}
+
 // execChatButtons sends interactive buttons on first entry (yielding to
 // wait for a click); on a later inbound that carries a buttonID, consumes
 // the selection and returns "button:<id>" so the runner can resolve the
@@ -295,6 +322,13 @@ func (a *App) execChatButtons(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, er
 			ctx.session.SessionData[storeAs] = value
 		}
 		return nodeOutcome{outcome: "button:" + ctx.buttonID}, nil
+	}
+
+	// A reply that wasn't a button click, but genuinely meant for this node
+	// (not stale input left over from an earlier node in the same turn) —
+	// let AI answer it before re-showing the buttons below.
+	if !ctx.consumed && ctx.userInput != "" {
+		a.aiInterrupt(ctx, ctx.userInput)
 	}
 
 	body := stringFromConfig(node.Config, "body", "message", "text")
@@ -398,6 +432,11 @@ func (a *App) handleChatPromptInvalid(node *ChatNode, ctx *chatNodeCtx) (nodeOut
 		ctx.session.StepRetries = 0
 		return nodeOutcome{outcome: "max_retries"}, nil
 	}
+
+	// This input just failed validation (e.g. an email regex) — it may be a
+	// genuine off-topic question rather than a bad attempt at the field
+	// itself. Let AI answer it before re-asking below.
+	a.aiInterrupt(ctx, ctx.userInput)
 
 	errorMsg := stringFromConfig(node.Config, "validation_error")
 	if errorMsg == "" {
@@ -902,23 +941,16 @@ func (a *App) execChatWhatsAppFlow(node *ChatNode, ctx *chatNodeCtx) (nodeOutcom
 			ctx.session.SessionData = models.JSONB{}
 		}
 		maps.Copy(ctx.session.SessionData, ctx.flowResponseData)
-
-		// Lead capture hook: a submission carrying name+mobile is treated as
-		// a qualified enquiry and synced to Salesforce (see internal/salesforce
-		// and handlers/salesforce.go). No-op when the org hasn't configured
-		// the integration. Fire-and-forget so a slow/down Salesforce never
-		// delays the bot's next message.
-		if name := stringFromConfig(ctx.flowResponseData, "name"); name != "" {
-			if mobile := stringFromConfig(ctx.flowResponseData, "mobile"); mobile != "" {
-				email := stringFromConfig(ctx.flowResponseData, "email")
-				project := stringFromConfig(ctx.flowResponseData, "project")
-				message := stringFromConfig(ctx.flowResponseData, "message")
-				account, contact := ctx.account, ctx.contact
-				go a.syncLeadFirstContact(account.OrganizationID, contact, name, mobile, email, project, message)
-			}
-		}
+		a.maybeSyncLeadFromSessionData(ctx)
 
 		return nodeOutcome{outcome: "default"}, nil
+	}
+
+	// A plain-text reply while the form is still open, genuinely meant for
+	// this node (not stale input from an earlier node this turn) — let AI
+	// answer it, then still re-send the form invite below.
+	if !ctx.consumed && len(ctx.flowResponseData) == 0 && ctx.userInput != "" {
+		a.aiInterrupt(ctx, ctx.userInput)
 	}
 
 	flowID := stringFromConfig(node.Config, "flow_id")
