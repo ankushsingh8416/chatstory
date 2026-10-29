@@ -781,12 +781,34 @@ func (a *App) matchFlowTrigger(orgID uuid.UUID, messageText string) *models.Chat
 
 	for _, flow := range flows {
 		for _, keyword := range flow.TriggerKeywords {
-			if strings.Contains(messageLower, strings.ToLower(keyword)) {
+			if containsKeywordWord(messageLower, keyword) {
 				return &flow
 			}
 		}
 	}
 	return nil
+}
+
+// containsKeywordWord reports whether keyword appears in messageLower as a
+// whole word/phrase, not as a substring of a longer word. A plain
+// strings.Contains check means a trigger keyword like "hi" fires on "hii",
+// "this", "history" — any message that happens to contain those letters —
+// which is exactly the false-positive a real user hits by typing "hii" as
+// a casual greeting. messageLower must already be lowercased; keyword is
+// lowercased here.
+func containsKeywordWord(messageLower, keyword string) bool {
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword == "" {
+		return false
+	}
+	re, err := regexp.Compile(`\b` + regexp.QuoteMeta(keyword) + `\b`)
+	if err != nil {
+		// Shouldn't happen (QuoteMeta-escaped input), but never let a
+		// malformed keyword crash trigger matching — fall back to the old
+		// substring behavior rather than silently matching nothing.
+		return strings.Contains(messageLower, keyword)
+	}
+	return re.MatchString(messageLower)
 }
 
 // startFlow initiates a chatbot flow for a user

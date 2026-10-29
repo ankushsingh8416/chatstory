@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,6 +112,35 @@ func TestFetchKnowledgeBaseContext_MissingEmbeddingsKey(t *testing.T) {
 // =============================================================================
 // matchKeywordRules
 // =============================================================================
+
+// TestContainsKeywordWord_WordBoundary is a regression test: a trigger
+// keyword like "hi" must match the standalone word "hi", not fire on "hii",
+// "this", or "history" just because the letters appear inside them — a
+// real user typing a casual "hii" as a greeting was hitting the welcome
+// flow's "hi" keyword via a plain substring check before this fix.
+func TestContainsKeywordWord_WordBoundary(t *testing.T) {
+	cases := []struct {
+		name    string
+		message string
+		keyword string
+		want    bool
+	}{
+		{"exact word match", "hi there", "hi", true},
+		{"whole message is the word", "hi", "hi", true},
+		{"substring inside a longer word must not match", "hii what is your name", "hi", false},
+		{"substring inside an unrelated word must not match", "what is the history of this project", "hi", false},
+		{"multi-word keyword matches as a phrase", "I want to schedule visit please", "schedule visit", true},
+		{"multi-word keyword partial words must not match", "I scheduled a visitor pass", "schedule visit", false},
+		{"case insensitive", "HELLO there", "hello", true},
+		{"punctuation at boundary still matches", "hi, who are you?", "hi", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := containsKeywordWord(strings.ToLower(tc.message), tc.keyword)
+			assert.Equal(t, tc.want, got, "message=%q keyword=%q", tc.message, tc.keyword)
+		})
+	}
+}
 
 func TestMatchKeywordRules_ExactMatch(t *testing.T) {
 	app := newProcessorTestApp(t)
