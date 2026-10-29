@@ -707,6 +707,23 @@ func (a *App) execChatAIResponse(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome,
 //	  "notes":   "Last seen {{last_query}}"      // optional; templated
 //	}
 func (a *App) execChatTransfer(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, error) {
+	// Lead capture hook: a transfer-to-human handoff that followed a "name"
+	// capture step (whichever node set it — a Text prompt or a WA Flow) is
+	// treated as a qualified enquiry reaching a human, same bar as the
+	// WhatsApp Flow hook in execChatWhatsAppFlow. Mobile isn't asked again
+	// here since it's already the WhatsApp session's own phone number.
+	if name := stringFromConfig(ctx.session.SessionData, "name"); name != "" {
+		mobile := stringFromConfig(ctx.session.SessionData, "mobile")
+		if mobile == "" {
+			mobile = ctx.contact.PhoneNumber
+		}
+		email := stringFromConfig(ctx.session.SessionData, "email")
+		project := stringFromConfig(ctx.session.SessionData, "project")
+		message := stringFromConfig(ctx.session.SessionData, "message", "query")
+		account, contact := ctx.account, ctx.contact
+		go a.syncLeadFirstContact(account.OrganizationID, contact, name, mobile, email, project, message)
+	}
+
 	if body := stringFromConfig(node.Config, "body", "message", "text"); body != "" {
 		message := processTemplate(body, ctx.session.SessionData)
 		if err := a.sendAndSaveTextMessage(ctx.account, ctx.contact, message); err != nil {
