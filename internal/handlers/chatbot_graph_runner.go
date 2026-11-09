@@ -326,9 +326,17 @@ func (a *App) execChatButtons(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, er
 
 	// A reply that wasn't a button click, but genuinely meant for this node
 	// (not stale input left over from an earlier node in the same turn) —
-	// let AI answer it before re-showing the buttons below.
+	// the customer chose to ask something instead of picking an option.
+	// Let AI answer it, then exit the flow instead of re-showing the same
+	// menu: re-prompting on every single reply turns a one-off interruption
+	// into the bot repeating itself each turn the customer just wants to
+	// talk. The menu comes back on its own via the wildcard "*" trigger (or
+	// an explicit keyword) whenever they actually want it again.
 	if !ctx.consumed && ctx.userInput != "" {
-		a.aiInterrupt(ctx, ctx.userInput)
+		if a.aiInterrupt(ctx, ctx.userInput) {
+			ctx.session.Status = models.SessionStatusCompleted
+			return nodeOutcome{yield: true}, nil
+		}
 	}
 
 	body := stringFromConfig(node.Config, "body", "message", "text")
