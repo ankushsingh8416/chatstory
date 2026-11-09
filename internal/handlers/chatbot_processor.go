@@ -326,6 +326,25 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 		return
 	}
 
+	// Smart routing: if the message already states a clear intent (e.g.
+	// "show me residential options" tagged on the Welcome node's
+	// "Residential" button), jump straight to that option instead of
+	// showing the generic menu first. Checked before plain keyword
+	// triggers so a specific intent wins over a generic flow start.
+	if flow, resumeNode, resumeButton := a.matchFlowIntentButton(account.OrganizationID, messageText); flow != nil {
+		session.CurrentFlowID = &flow.ID
+		session.CurrentStep = resumeNode
+		session.StepRetries = 0
+		session.SessionData = models.JSONB{
+			"_flow_id":   flow.ID.String(),
+			"_flow_name": flow.Name,
+		}
+		if err := a.runChatGraph(account, contact, session, flow, "", resumeButton, nil); err != nil {
+			a.Log.Error("Chat graph runner failed at intent-routed flow start", "error", err, "session", session.ID, "flow", flow.ID)
+		}
+		return
+	}
+
 	// Try to match flow trigger keywords first (before greeting to avoid duplicate messages)
 	if flow := a.matchFlowTrigger(account.OrganizationID, messageText, isNewSession); flow != nil {
 		if flow.Graph == nil {
@@ -834,6 +853,59 @@ func containsKeywordWord(messageLower, keyword string) bool {
 		return strings.Contains(messageLower, keyword)
 	}
 	return re.MatchString(messageLower)
+}
+
+// matchFlowIntentButton lets a free-text message jump straight to a specific
+// button option inside a flow's graph, instead of only ever landing on that
+// flow's entry node. A button can list "intent_keywords" in its config
+// (e.g. the "Welcome" node's "Residential" button tagging "residential",
+// "livewell") — when the inbound message contains one of those as a whole
+// word/phrase, this returns the flow plus the node/button to resume at, as
+// if the user had already been shown that node and tapped the button. This
+// only matters when no flow is currently active (checked by the caller),
+// so it never interrupts a session mid-flow.
+func (a *App) matchFlowIntentButton(orgID uuid.UUID, messageText string) (flow *models.ChatbotFlow, nodeID string, buttonID string) {
+	flows, err := a.getChatbotFlowsCached(orgID)
+	if err != nil {
+		a.Log.Error("Failed to fetch chatbot flows", "error", err)
+		return nil, "", ""
+	}
+
+	messageLower := strings.ToLower(messageText)
+
+	for i := range flows {
+		f := &flows[i]
+		if f.Graph == nil {
+			continue
+		}
+		graph, err := parseChatGraph(f.Graph)
+		if err != nil || graph == nil {
+			continue
+		}
+		for _, node := range graph.Nodes {
+			if node.Type != ChatNodeButtons {
+				continue
+			}
+			for _, btn := range buttonsFromConfig(node.Config) {
+				id, _ := btn["id"].(string)
+				if id == "" {
+					continue
+				}
+				keywords, _ := btn["intent_keywords"].([]any)
+				for _, kw := range keywords {
+					kwStr, _ := kw.(string)
+					if kwStr == "" {
+						continue
+					}
+					if containsKeywordWord(messageLower, kwStr) {
+						return f, node.ID, id
+					}
+				}
+			}
+		}
+	}
+
+	return nil, "", ""
 }
 
 // startFlow initiates a chatbot flow for a user
