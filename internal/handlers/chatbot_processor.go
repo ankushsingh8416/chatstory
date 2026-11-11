@@ -1264,7 +1264,14 @@ func (a *App) fetchKnowledgeBaseContext(orgID uuid.UUID, apiConfig models.JSONB,
 	sort.Slice(allResults, func(i, j int) bool { return allResults[i].Score > allResults[j].Score })
 
 	var parts []string
-	for _, r := range allResults {
+	for i, r := range allResults {
+		if i < 5 {
+			snippet := r.Content
+			if len(snippet) > 120 {
+				snippet = snippet[:120]
+			}
+			a.Log.Info("knowledge base search result", "rank", i, "score", r.Score, "snippet", snippet)
+		}
 		if r.Score < threshold {
 			continue
 		}
