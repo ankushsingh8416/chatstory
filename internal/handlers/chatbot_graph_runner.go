@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,7 @@ type chatNodeCtx struct {
 	buttonID         string
 	flowResponseData map[string]any // form fields from a WhatsApp Flow submission
 	consumed         bool
+	messageID        string // inbound WAMID, for the typing indicator in aiInterrupt
 }
 
 // nodeOutcome is the return value of a node executor.
@@ -70,6 +72,7 @@ func (a *App) runChatGraph(
 	userInput string,
 	buttonID string,
 	flowResponseData map[string]any,
+	messageID string,
 ) error {
 	graph, err := parseChatGraph(flow.Graph)
 	if err != nil {
@@ -86,6 +89,7 @@ func (a *App) runChatGraph(
 		userInput:        userInput,
 		buttonID:         buttonID,
 		flowResponseData: flowResponseData,
+		messageID:        messageID,
 	}
 
 	// Seed built-in template variables so {{phone_number}} / {{contact_name}}
@@ -287,6 +291,11 @@ func (a *App) aiInterrupt(ctx *chatNodeCtx, userMessage string) bool {
 	if err != nil || !settings.AI.Enabled || settings.AI.Provider == "" || settings.AI.APIKey == "" {
 		return false
 	}
+	if ctx.messageID != "" {
+		if err := a.WhatsApp.SendTypingIndicator(context.Background(), a.toWhatsAppAccount(ctx.account), ctx.messageID); err != nil {
+			a.Log.Warn("Failed to send typing indicator", "error", err, "session", ctx.session.ID)
+		}
+	}
 	answer, err := a.generateAIResponse(settings, ctx.session, userMessage)
 	if err != nil || answer == "" {
 		return false
@@ -327,14 +336,18 @@ func (a *App) execChatButtons(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, er
 	// A reply that wasn't a button click, but genuinely meant for this node
 	// (not stale input left over from an earlier node in the same turn) —
 	// the customer chose to ask something instead of picking an option.
-	// Let AI answer it, then exit the flow instead of re-showing the same
-	// menu: re-prompting on every single reply turns a one-off interruption
-	// into the bot repeating itself each turn the customer just wants to
-	// talk. The menu comes back on its own via the wildcard "*" trigger (or
-	// an explicit keyword) whenever they actually want it again.
+	// Let AI answer it, then exit the FLOW (not the session) instead of
+	// re-showing the same menu: re-prompting on every single reply turns a
+	// one-off interruption into the bot repeating itself each turn the
+	// customer just wants to talk. Session.Status stays Active so the next
+	// inbound is NOT treated as a new session (which would force the
+	// greeting right back out) — it just continues as a normal AI
+	// conversation until an explicit keyword brings a flow back.
 	if !ctx.consumed && ctx.userInput != "" {
 		if a.aiInterrupt(ctx, ctx.userInput) {
-			ctx.session.Status = models.SessionStatusCompleted
+			ctx.session.CurrentFlowID = nil
+			ctx.session.CurrentStep = ""
+			ctx.session.StepRetries = 0
 			return nodeOutcome{yield: true}, nil
 		}
 	}

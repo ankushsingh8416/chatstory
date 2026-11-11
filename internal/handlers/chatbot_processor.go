@@ -320,7 +320,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 			a.exitFlow(session)
 			return
 		}
-		if err := a.runChatGraph(account, contact, session, flow, messageText, buttonID, flowResponseData); err != nil {
+		if err := a.runChatGraph(account, contact, session, flow, messageText, buttonID, flowResponseData, msg.ID); err != nil {
 			a.Log.Error("Chat graph runner failed", "error", err, "session", session.ID, "flow", flow.ID)
 		}
 		return
@@ -339,7 +339,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 			"_flow_id":   flow.ID.String(),
 			"_flow_name": flow.Name,
 		}
-		if err := a.runChatGraph(account, contact, session, flow, "", resumeButton, nil); err != nil {
+		if err := a.runChatGraph(account, contact, session, flow, "", resumeButton, nil, msg.ID); err != nil {
 			a.Log.Error("Chat graph runner failed at intent-routed flow start", "error", err, "session", session.ID, "flow", flow.ID)
 		}
 		return
@@ -358,7 +358,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 			"_flow_id":   flow.ID.String(),
 			"_flow_name": flow.Name,
 		}
-		if err := a.runChatGraph(account, contact, session, flow, messageText, buttonID, flowResponseData); err != nil {
+		if err := a.runChatGraph(account, contact, session, flow, messageText, buttonID, flowResponseData, msg.ID); err != nil {
 			a.Log.Error("Chat graph runner failed at flow start", "error", err, "session", session.ID, "flow", flow.ID)
 		}
 		return
