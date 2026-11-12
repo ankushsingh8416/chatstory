@@ -968,10 +968,19 @@ func (a *App) execChatWhatsAppFlow(node *ChatNode, ctx *chatNodeCtx) (nodeOutcom
 	}
 
 	// A plain-text reply while the form is still open, genuinely meant for
-	// this node (not stale input from an earlier node this turn) — let AI
-	// answer it, then still re-send the form invite below.
-	if !ctx.consumed && len(ctx.flowResponseData) == 0 && ctx.userInput != "" {
-		a.aiInterrupt(ctx, ctx.userInput)
+	// this node (not stale input from an earlier node this turn). Two
+	// cases keep the form on screen rather than letting AI take over:
+	// an explicit ask for a human, or the AI genuinely having no answer.
+	// Anything else the AI can actually answer exits the flow instead of
+	// re-sending the form — the form is for handoff, not for shoving at
+	// someone who just got a perfectly good answer.
+	if !ctx.consumed && len(ctx.flowResponseData) == 0 && ctx.userInput != "" && !wantsHumanAgent(ctx.userInput) {
+		if a.aiInterrupt(ctx, ctx.userInput) {
+			ctx.session.CurrentFlowID = nil
+			ctx.session.CurrentStep = ""
+			ctx.session.StepRetries = 0
+			return nodeOutcome{yield: true}, nil
+		}
 	}
 
 	flowID := stringFromConfig(node.Config, "flow_id")

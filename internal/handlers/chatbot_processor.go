@@ -908,6 +908,28 @@ func (a *App) matchFlowIntentButton(orgID uuid.UUID, messageText string) (flow *
 	return nil, "", ""
 }
 
+// humanAgentPhrases are whole-word/phrase matches that mean "I want a
+// person, not the bot" — checked before letting AI answer a reply at an
+// open WhatsApp Flow (lead capture) node, so an explicit handoff request
+// keeps the form on screen instead of getting an AI text answer instead.
+var humanAgentPhrases = []string{
+	"agent", "human", "representative", "real person", "connect me",
+	"talk to someone", "talk to an agent", "speak to someone", "speak to an agent",
+}
+
+// wantsHumanAgent reports whether message explicitly asks for a human
+// instead of the bot, using the same whole-word/phrase matching as flow
+// trigger keywords (so "agent" doesn't fire on "agenda").
+func wantsHumanAgent(message string) bool {
+	messageLower := strings.ToLower(message)
+	for _, phrase := range humanAgentPhrases {
+		if containsKeywordWord(messageLower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // startFlow initiates a chatbot flow for a user
 func (a *App) exitFlow(session *models.ChatbotSession) {
 	now := time.Now()
