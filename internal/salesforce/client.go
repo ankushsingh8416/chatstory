@@ -69,7 +69,10 @@ type FollowUpPayload struct {
 	Messages       []MessageItem `json:"messages"`
 }
 
-// LeadResponse is the shared response shape for both endpoints.
+// LeadResponse is the shared response shape for both endpoints. StatusCode
+// is our own addition (not part of Salesforce's JSON) — postLead fills it
+// in from the HTTP response on every path, success or failure, so callers
+// can log exactly what came back without re-deriving it from the error text.
 type LeadResponse struct {
 	Success       bool     `json:"success"`
 	Action        string   `json:"action"`
@@ -77,6 +80,7 @@ type LeadResponse struct {
 	MessagesSaved int      `json:"messagesSaved"`
 	Message       string   `json:"message"`
 	Warnings      []string `json:"warnings"`
+	StatusCode    int      `json:"-"`
 }
 
 // CreateOrUpdateLead sends the first-contact payload.
@@ -105,21 +109,22 @@ func (c *Client) postLead(ctx context.Context, payload any) (*LeadResponse, erro
 		// Token may have expired server-side despite our cache — refetch once.
 		token, err = c.getToken(ctx, true)
 		if err != nil {
-			return nil, fmt.Errorf("refresh token: %w", err)
+			return &LeadResponse{StatusCode: status}, fmt.Errorf("refresh token: %w", err)
 		}
 		resp, status, err = c.doLeadRequest(ctx, token, body)
 	}
 	if err != nil {
-		return nil, err
+		return &LeadResponse{StatusCode: status}, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("lead API returned status %d: %s", status, string(resp))
+		return &LeadResponse{StatusCode: status, Message: string(resp)}, fmt.Errorf("lead API returned status %d: %s", status, string(resp))
 	}
 
 	var out LeadResponse
 	if err := json.Unmarshal(resp, &out); err != nil {
-		return nil, fmt.Errorf("parse lead response: %w", err)
+		return &LeadResponse{StatusCode: status}, fmt.Errorf("parse lead response: %w", err)
 	}
+	out.StatusCode = status
 	return &out, nil
 }
 

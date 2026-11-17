@@ -92,6 +92,7 @@ func GetMigrationModels() []MigrationModel {
 		{"ChatbotSessionMessage", &models.ChatbotSessionMessage{}},
 		{"AIContext", &models.AIContext{}},
 		{"AgentTransfer", &models.AgentTransfer{}},
+		{"SalesforceSyncLog", &models.SalesforceSyncLog{}},
 
 		// User tracking
 		{"UserAvailabilityLog", &models.UserAvailabilityLog{}},

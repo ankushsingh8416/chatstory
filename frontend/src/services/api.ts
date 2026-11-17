@@ -745,6 +745,7 @@ export const organizationService = {
     // whichever provider (OpenAI/Anthropic) the chatbot's replies use.
     openai_embeddings_key?: string
   }) => api.put('/org/settings', data),
+  getSalesforceSyncLogs: (limit = 20) => api.get(`/salesforce/sync-logs?limit=${limit}`),
   uploadOrgAudio: (file: File, type: 'hold_music' | 'ringback') => {
     const formData = new FormData()
     formData.append('file', file)

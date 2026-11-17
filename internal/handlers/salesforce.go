@@ -8,7 +8,93 @@ import (
 	"github.com/shridarpatil/whatomate/internal/crypto"
 	"github.com/shridarpatil/whatomate/internal/models"
 	"github.com/shridarpatil/whatomate/internal/salesforce"
+	"github.com/valyala/fasthttp"
+	"github.com/zerodha/fastglue"
+	"gorm.io/gorm"
 )
+
+// SalesforceSyncLogResponse is one row of "did this lead/message reach
+// Salesforce" — the contact's name/phone are joined in so the UI doesn't
+// need a second round trip per row.
+type SalesforceSyncLogResponse struct {
+	ID           uuid.UUID `json:"id"`
+	ContactID    uuid.UUID `json:"contact_id"`
+	ContactName  string    `json:"contact_name"`
+	ContactPhone string    `json:"contact_phone"`
+	Kind         string    `json:"kind"`
+	Success      bool      `json:"success"`
+	StatusCode   int       `json:"status_code"`
+	LeadID       string    `json:"lead_id"`
+	Action       string    `json:"action"`
+	ErrorMessage string    `json:"error_message"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// ListSalesforceSyncLogs answers "did this submission reach Salesforce, how,
+// and what did it come back with" for every lead/message sync attempt.
+// Supported query params: contact_id, success ("true"/"false"), page, limit.
+func (a *App) ListSalesforceSyncLogs(r *fastglue.Request) error {
+	orgID, _, err := a.requireAuth(r, models.ResourceAccounts, models.ActionRead)
+	if err != nil {
+		return nil
+	}
+
+	baseQuery := a.DB.Where("organization_id = ?", orgID)
+	if v := string(r.RequestCtx.QueryArgs().Peek("contact_id")); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			baseQuery = baseQuery.Where("contact_id = ?", id)
+		}
+	}
+	if v := string(r.RequestCtx.QueryArgs().Peek("success")); v != "" {
+		baseQuery = baseQuery.Where("success = ?", v == "true")
+	}
+
+	pg := parsePagination(r)
+
+	var logs []models.SalesforceSyncLog
+	var total int64
+	countQuery := baseQuery.Session(&gorm.Session{})
+	countQuery.Model(&models.SalesforceSyncLog{}).Count(&total)
+
+	if err := pg.Apply(baseQuery.Order("created_at DESC")).Find(&logs).Error; err != nil {
+		a.Log.Error("Failed to list Salesforce sync logs", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError,
+			"Failed to list Salesforce sync logs", nil, "")
+	}
+
+	contactIDs := make([]uuid.UUID, 0, len(logs))
+	for _, l := range logs {
+		contactIDs = append(contactIDs, l.ContactID)
+	}
+	var contacts []models.Contact
+	if len(contactIDs) > 0 {
+		a.DB.Where("id IN ?", contactIDs).Find(&contacts)
+	}
+	contactByID := make(map[uuid.UUID]models.Contact, len(contacts))
+	for _, c := range contacts {
+		contactByID[c.ID] = c
+	}
+
+	response := make([]SalesforceSyncLogResponse, len(logs))
+	for i, l := range logs {
+		c := contactByID[l.ContactID]
+		response[i] = SalesforceSyncLogResponse{
+			ID:           l.ID,
+			ContactID:    l.ContactID,
+			ContactName:  c.ProfileName,
+			ContactPhone: c.PhoneNumber,
+			Kind:         l.Kind,
+			Success:      l.Success,
+			StatusCode:   l.StatusCode,
+			LeadID:       l.LeadID,
+			Action:       l.Action,
+			ErrorMessage: l.ErrorMessage,
+			CreatedAt:    l.CreatedAt,
+		}
+	}
+
+	return r.SendEnvelope(listEnvelope("salesforce_sync_logs", response, total, pg))
+}
 
 // getSalesforceClient builds a client from the org's stored settings. Returns
 // (nil, nil) when the integration isn't enabled/configured for this org —
@@ -68,6 +154,27 @@ func readSalesforceMeta(contact *models.Contact) *salesforceMeta {
 	return m
 }
 
+// logSalesforceSync records one sync attempt so "did this submission reach
+// Salesforce, how, and with what status" can be answered from the DB
+// instead of grepping container logs. resp may be nil (e.g. the client
+// itself failed to build); err nil means success.
+func (a *App) logSalesforceSync(orgID, contactID uuid.UUID, kind string, resp *salesforce.LeadResponse, err error) {
+	entry := models.SalesforceSyncLog{OrganizationID: orgID, ContactID: contactID, Kind: kind}
+	if resp != nil {
+		entry.StatusCode = resp.StatusCode
+		entry.LeadID = resp.LeadID
+		entry.Action = resp.Action
+	}
+	if err != nil {
+		entry.ErrorMessage = err.Error()
+	} else if resp != nil {
+		entry.Success = resp.Success
+	}
+	if dbErr := a.DB.Create(&entry).Error; dbErr != nil {
+		a.Log.Error("Failed to persist Salesforce sync log", "error", dbErr, "contact_id", contactID)
+	}
+}
+
 // syncLeadFirstContact fires once, when a WhatsApp Flow submission (or any
 // future capture point) has collected name + mobile. It creates/updates the
 // Salesforce Lead and records the result on the contact so every later
@@ -104,6 +211,7 @@ func (a *App) syncLeadFirstContact(orgID uuid.UUID, contact *models.Contact, nam
 			Body:      initialMessage,
 		}},
 	})
+	a.logSalesforceSync(orgID, contact.ID, "lead_capture", resp, err)
 	if err != nil {
 		a.Log.Error("Salesforce lead capture failed", "error", err, "contact_id", contact.ID)
 		return
@@ -153,7 +261,7 @@ func (a *App) syncMessageToSalesforce(orgID uuid.UUID, contact *models.Contact, 
 	if wamid == "" {
 		wamid = uuid.New().String()
 	}
-	_, err = client.AppendMessages(ctx, salesforce.FollowUpPayload{
+	resp, err := client.AppendMessages(ctx, salesforce.FollowUpPayload{
 		Mobile:         contact.PhoneNumber,
 		ConversationID: meta.ConversationID,
 		Messages: []salesforce.MessageItem{{
@@ -163,6 +271,7 @@ func (a *App) syncMessageToSalesforce(orgID uuid.UUID, contact *models.Contact, 
 			Body:      body,
 		}},
 	})
+	a.logSalesforceSync(orgID, contact.ID, "message", resp, err)
 	if err != nil {
 		a.Log.Error("Salesforce message sync failed", "error", err, "contact_id", contact.ID)
 	}

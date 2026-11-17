@@ -103,6 +103,35 @@ function refreshActivityLog(key: typeof generalLogKey) {
   setTimeout(() => { key.value++ }, 500)
 }
 
+// Salesforce sync log — "did this lead/message reach Salesforce, how, and
+// with what status". Fetched once on mount, same as everything else here.
+interface SalesforceSyncLogRow {
+  id: string
+  contact_name: string
+  contact_phone: string
+  kind: string
+  success: boolean
+  status_code: number
+  lead_id: string
+  action: string
+  error_message: string
+  created_at: string
+}
+const salesforceSyncLogs = ref<SalesforceSyncLogRow[]>([])
+const isLoadingSfLogs = ref(false)
+
+async function fetchSalesforceSyncLogs() {
+  isLoadingSfLogs.value = true
+  try {
+    const response = await organizationService.getSalesforceSyncLogs()
+    salesforceSyncLogs.value = response.data.data?.salesforce_sync_logs || []
+  } catch (error) {
+    console.error('Failed to fetch Salesforce sync logs', error)
+  } finally {
+    isLoadingSfLogs.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     const [orgResponse, userResponse] = await Promise.all([
@@ -160,6 +189,10 @@ onMounted(async () => {
     console.error('Failed to load settings:', error)
   } finally {
     isLoading.value = false
+  }
+
+  if (canWriteAccounts.value) {
+    fetchSalesforceSyncLogs()
   }
 })
 
@@ -618,6 +651,45 @@ function togglePlayAudio(type: 'hold_music' | 'ringback') {
                     <Loader2 v-if="isSubmitting" class="mr-2 h-4 w-4 animate-spin" />
                     {{ $t('settings.save') }}
                   </Button>
+                </div>
+                <Separator class="bg-white/[0.08] light:bg-gray-200" />
+                <div class="flex items-center justify-between">
+                  <p class="font-medium text-white light:text-gray-900">Recent sync attempts</p>
+                  <Button variant="ghost" size="sm" @click="fetchSalesforceSyncLogs" :disabled="isLoadingSfLogs">
+                    <Loader2 v-if="isLoadingSfLogs" class="h-4 w-4 animate-spin" />
+                    <span v-else>Refresh</span>
+                  </Button>
+                </div>
+                <div v-if="salesforceSyncLogs.length === 0" class="text-sm text-white/40 light:text-gray-500">
+                  No lead/message sync attempts yet.
+                </div>
+                <div v-else class="overflow-x-auto rounded-lg border border-white/[0.08] light:border-gray-200">
+                  <table class="w-full text-sm">
+                    <thead class="bg-white/[0.03] light:bg-gray-50 text-white/50 light:text-gray-500">
+                      <tr>
+                        <th class="text-left p-2 font-medium">Contact</th>
+                        <th class="text-left p-2 font-medium">Kind</th>
+                        <th class="text-left p-2 font-medium">Status</th>
+                        <th class="text-left p-2 font-medium">HTTP</th>
+                        <th class="text-left p-2 font-medium">Lead ID</th>
+                        <th class="text-left p-2 font-medium">When</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="log in salesforceSyncLogs" :key="log.id" class="border-t border-white/[0.06] light:border-gray-100" :title="log.error_message">
+                        <td class="p-2 text-white/80 light:text-gray-800">{{ log.contact_name || log.contact_phone }}</td>
+                        <td class="p-2 text-white/60 light:text-gray-600">{{ log.kind }}</td>
+                        <td class="p-2">
+                          <span :class="log.success ? 'text-green-400' : 'text-red-400'">
+                            {{ log.success ? `Sent (${log.action || 'ok'})` : 'Failed' }}
+                          </span>
+                        </td>
+                        <td class="p-2 text-white/60 light:text-gray-600">{{ log.status_code || '—' }}</td>
+                        <td class="p-2 text-white/60 light:text-gray-600">{{ log.lead_id || '—' }}</td>
+                        <td class="p-2 text-white/40 light:text-gray-400">{{ new Date(log.created_at).toLocaleString() }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
