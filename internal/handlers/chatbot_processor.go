@@ -422,9 +422,10 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 
 		a.Log.Info("Attempting AI response", "provider", settings.AI.Provider, "model", settings.AI.Model)
 		aiResponse, err := a.generateAIResponse(settings, session, messageText)
+		aiHadNoAnswer := false
 		if err != nil {
 			a.Log.Error("AI response failed", "error", err, "provider", settings.AI.Provider, "model", settings.AI.Model)
-			// Fall through to default response
+			aiHadNoAnswer = true
 		} else if aiResponse != "" {
 			a.Log.Info("AI response generated successfully", "response_length", len(aiResponse))
 			if err := a.sendAndSaveTextMessage(account, contact, aiResponse); err != nil {
@@ -434,6 +435,27 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 			return
 		} else {
 			a.Log.Warn("AI returned empty response")
+			aiHadNoAnswer = true
+		}
+
+		// AI genuinely had nothing — hand off to a lead-capture flow instead
+		// of a generic fallback text, if one is configured to catch this
+		// (see aiFallbackTrigger).
+		if aiHadNoAnswer {
+			if flow := a.matchFlowTrigger(account.OrganizationID, aiFallbackTrigger, false); flow != nil && flow.Graph != nil {
+				session.CurrentFlowID = &flow.ID
+				session.CurrentStep = ""
+				session.StepRetries = 0
+				if session.SessionData == nil {
+					session.SessionData = models.JSONB{}
+				}
+				session.SessionData["_flow_id"] = flow.ID.String()
+				session.SessionData["_flow_name"] = flow.Name
+				if err := a.runChatGraph(account, contact, session, flow, messageText, buttonID, flowResponseData, msg.ID); err != nil {
+					a.Log.Error("Chat graph runner failed at AI-fallback flow start", "error", err, "session", session.ID, "flow", flow.ID)
+				}
+				return
+			}
 		}
 	} else {
 		a.Log.Info("AI not configured", "ai_enabled", settings.AI.Enabled, "has_provider", settings.AI.Provider != "", "has_api_key", settings.AI.APIKey != "")
@@ -793,6 +815,14 @@ func (a *App) logSessionMessage(sessionID uuid.UUID, direction models.Direction,
 // DefaultResponse greeting. Scoped to isNewSession so it can't hijack every
 // message a returning contact sends.
 const flowTriggerWildcard = "*"
+
+// aiFallbackTrigger is a pseudo keyword: not something a real customer ever
+// types (double-underscored), only ever passed programmatically to
+// matchFlowTrigger when the AI genuinely had no answer (failed, or an empty
+// reply). A flow that lists it as a trigger keyword (e.g. a lead-capture
+// WhatsApp Flow) becomes the "AI doesn't know, hand this off" destination —
+// opt-in per org by adding the keyword, no hardcoded flow ID in this code.
+const aiFallbackTrigger = "__ai_no_answer__"
 
 // matchFlowTrigger checks if the message triggers any flow. Explicit
 // keywords (across every flow) are checked first so a new session's first
