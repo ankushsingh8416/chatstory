@@ -256,15 +256,21 @@ func (a *App) execChatMessage(node *ChatNode, ctx *chatNodeCtx) (nodeOutcome, er
 
 // maybeSyncLeadFromSessionData fires the Salesforce lead-capture hook when
 // SessionData carries a captured "name" — the bar used by both the Transfer
-// node (hand off to a human) and the plain Message node (stay active). It's
-// a no-op, repeatable call: Salesforce's own API upserts by mobile/email, so
-// firing it from more than one end-of-capture node in the same run is safe,
-// not a duplicate-lead risk.
+// node (hand off to a human) and the plain Message node (stay active).
+// Guarded by "_lead_synced" because a flow commonly reaches more than one
+// of these nodes in the same run (e.g. the WhatsAppFlow node that captured
+// the data, then a closing Message node right after) — firing the Salesforce
+// sync from each would race two concurrent upserts-by-mobile/email against
+// each other and create two separate leads instead of one.
 func (a *App) maybeSyncLeadFromSessionData(ctx *chatNodeCtx) {
+	if ctx.session.SessionData["_lead_synced"] == true {
+		return
+	}
 	name := stringFromConfig(ctx.session.SessionData, "name")
 	if name == "" {
 		return
 	}
+	ctx.session.SessionData["_lead_synced"] = true
 	mobile := stringFromConfig(ctx.session.SessionData, "mobile")
 	if mobile == "" {
 		mobile = ctx.contact.PhoneNumber
