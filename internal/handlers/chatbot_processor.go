@@ -279,6 +279,11 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 	// Log incoming message to session
 	a.logSessionMessage(session.ID, models.DirectionIncoming, messageText, "keyword_check")
 
+	// A customer who just types their phone number into the chat (instead
+	// of using the WhatsApp Flow form) is still a lead worth capturing —
+	// act like an agent who'd pick that up, not one who waits for the form.
+	a.maybeSyncLeadFromFreeText(account, contact, session, messageText)
+
 	// Check for transfer keyword BEFORE sending greeting (transfer takes priority)
 	keywordResponse, keywordMatched := a.matchKeywordRules(account.OrganizationID, account.Name, messageText)
 	if keywordMatched && keywordResponse.ResponseType == models.ResponseTypeTransfer {

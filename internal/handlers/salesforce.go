@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -152,6 +154,64 @@ func readSalesforceMeta(contact *models.Contact) *salesforceMeta {
 		return nil
 	}
 	return m
+}
+
+// indianMobileRe matches a 10-digit Indian mobile number (starts 6-9),
+// optionally prefixed with +91/91, as a whole word — strict enough that it
+// won't fire on budget figures like "10 Cr" or project names like "361".
+var indianMobileRe = regexp.MustCompile(`\b(?:\+?91[-\s]?)?([6-9]\d{9})\b`)
+
+var leadEmailRe = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
+
+// leadNameRe pulls a name out of common self-introduction phrasing
+// ("my name is Rahul", "I'm Rahul", "this is Rahul Sharma").
+var leadNameRe = regexp.MustCompile(`(?i)(?:my name is|i am|i'm|this is|name is|name[:\-])\s+([A-Za-z][A-Za-z\s]{1,30}?)(?:[.,!\n]|$)`)
+
+// maybeSyncLeadFromFreeText watches ordinary chat text (not just structured
+// WhatsApp Flow submissions) for a phone number — a customer who just types
+// "9876543210, I'm Rahul" is still a lead, same as one who filled the form.
+// No-op once the contact already has a Salesforce lead (readSalesforceMeta);
+// from there on, syncMessageToSalesforce appends every message to it.
+func (a *App) maybeSyncLeadFromFreeText(account *models.WhatsAppAccount, contact *models.Contact, session *models.ChatbotSession, messageText string) {
+	if readSalesforceMeta(contact) != nil {
+		return
+	}
+	m := indianMobileRe.FindStringSubmatch(messageText)
+	if m == nil {
+		return
+	}
+	mobile := m[1]
+
+	if session.SessionData == nil {
+		session.SessionData = models.JSONB{}
+	}
+	existingName, _ := session.SessionData["name"].(string)
+	if existingName == "" {
+		name := ""
+		if nm := leadNameRe.FindStringSubmatch(messageText); nm != nil {
+			name = strings.TrimSpace(nm[1])
+		}
+		if name == "" {
+			name = contact.ProfileName
+		}
+		if name == "" {
+			name = "WhatsApp Lead"
+		}
+		session.SessionData["name"] = name
+	}
+	session.SessionData["mobile"] = mobile
+	if email := leadEmailRe.FindString(messageText); email != "" {
+		session.SessionData["email"] = email
+	}
+	if msg, _ := session.SessionData["message"].(string); msg == "" {
+		session.SessionData["message"] = messageText
+	}
+
+	ctx := &chatNodeCtx{account: account, contact: contact, session: session}
+	a.maybeSyncLeadFromSessionData(ctx)
+	if err := a.persistChatSession(session); err != nil {
+		a.Log.Error("Failed to persist session after free-text lead capture", "error", err, "session", session.ID)
+	}
 }
 
 // logSalesforceSync records one sync attempt so "did this submission reach
