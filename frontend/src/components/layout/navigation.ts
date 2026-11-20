@@ -25,7 +25,8 @@ import {
   Building2,
   BookOpen,
   ShoppingBag,
-  ShoppingCart
+  ShoppingCart,
+  UserPlus
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
@@ -65,6 +66,12 @@ export const navigationSections: NavSection[] = [
         path: '/chat',
         icon: MessageSquare,
         permission: 'chat'
+      },
+      {
+        name: 'nav.leads',
+        path: '/leads',
+        icon: UserPlus,
+        permission: 'contacts'
       },
     ]
   },

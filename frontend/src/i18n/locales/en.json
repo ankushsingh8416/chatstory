@@ -257,6 +257,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "chat": "Chat",
+    "leads": "Leads",
     "contacts": "Contacts",
     "analytics": "Analytics",
     "settings": "Settings",

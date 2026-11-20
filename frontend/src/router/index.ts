@@ -60,6 +60,12 @@ const router = createRouter({
           meta: { permission: 'chat', stableKey: true }
         },
         {
+          path: 'leads',
+          name: 'leads',
+          component: () => import('@/views/LeadsView.vue'),
+          meta: { permission: 'contacts' }
+        },
+        {
           path: 'profile',
           name: 'profile',
           component: () => import('@/views/profile/ProfileView.vue')
@@ -425,6 +431,7 @@ const router = createRouter({
 const navigationOrder = [
   { path: '/', permission: 'analytics' },
   { path: '/chat', permission: 'chat' },
+  { path: '/leads', permission: 'contacts' },
   { path: '/chatbot', permission: 'settings.chatbot', childPaths: [
     { path: '/chatbot', permission: 'settings.chatbot' },
     { path: '/chatbot/settings', permission: 'settings.chatbot' },

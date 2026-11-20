@@ -801,6 +801,27 @@ function orgHeader(orgId: string) {
   return { headers: { 'X-Organization-ID': orgId } }
 }
 
+export interface Lead {
+  id: string
+  contact_id: string
+  name: string
+  mobile: string
+  email: string
+  project: string
+  message: string
+  source: string
+  created_at: string
+}
+
+export const leadService = {
+  list: (page = 1, limit = 20, source?: string) =>
+    api.get<{ data: { leads: Lead[]; total: number; page: number; limit: number } }>('/leads', {
+      params: { page, limit, source }
+    }),
+  getExportUrl: (source?: string) =>
+    `${api.defaults.baseURL}/leads/export${source ? `?source=${encodeURIComponent(source)}` : ''}`
+}
+
 export const organizationsService = {
   list: () => api.get<{ organizations: Organization[] }>('/organizations'),
   create: (data: { name: string }) => api.post<Organization>('/organizations', data),

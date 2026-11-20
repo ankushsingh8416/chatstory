@@ -37,6 +37,7 @@ type chatNodeCtx struct {
 	flowResponseData map[string]any // form fields from a WhatsApp Flow submission
 	consumed         bool
 	messageID        string // inbound WAMID, for the typing indicator in aiInterrupt
+	flowName         string // the running flow's name, recorded on captured leads
 }
 
 // nodeOutcome is the return value of a node executor.
@@ -90,6 +91,7 @@ func (a *App) runChatGraph(
 		buttonID:         buttonID,
 		flowResponseData: flowResponseData,
 		messageID:        messageID,
+		flowName:         flow.Name,
 	}
 
 	// Seed built-in template variables so {{phone_number}} / {{contact_name}}
@@ -279,6 +281,24 @@ func (a *App) maybeSyncLeadFromSessionData(ctx *chatNodeCtx) {
 	project := stringFromConfig(ctx.session.SessionData, "project")
 	message := stringFromConfig(ctx.session.SessionData, "message", "query")
 	account, contact := ctx.account, ctx.contact
+
+	source := ctx.flowName
+	if source == "" {
+		source = "free_text_chat"
+	}
+	if err := a.DB.Create(&models.Lead{
+		OrganizationID: account.OrganizationID,
+		ContactID:      contact.ID,
+		Name:           name,
+		Mobile:         mobile,
+		Email:          email,
+		Project:        project,
+		Message:        message,
+		Source:         source,
+	}).Error; err != nil {
+		a.Log.Error("Failed to record captured lead", "error", err, "contact_id", contact.ID)
+	}
+
 	go a.syncLeadFirstContact(account.OrganizationID, contact, name, mobile, email, project, message)
 }
 

@@ -756,6 +756,8 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.GET("/api/audit-logs", app.ListAuditLogs)
 	g.GET("/api/audit-logs/{id}", app.GetAuditLog)
 	g.GET("/api/salesforce/sync-logs", app.ListSalesforceSyncLogs)
+	g.GET("/api/leads", app.ListLeads)
+	g.GET("/api/leads/export", app.ExportLeads)
 
 	// Canned Responses
 	g.GET("/api/canned-responses", app.ListCannedResponses)
