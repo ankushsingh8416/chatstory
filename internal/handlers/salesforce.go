@@ -139,6 +139,7 @@ type salesforceMeta struct {
 	LeadID         string `json:"lead_id"`
 	ConversationID string `json:"conversation_id"`
 	SyncedAt       string `json:"synced_at"`
+	Mobile         string `json:"mobile"`
 }
 
 func readSalesforceMeta(contact *models.Contact) *salesforceMeta {
@@ -150,6 +151,7 @@ func readSalesforceMeta(contact *models.Contact) *salesforceMeta {
 	m.LeadID, _ = raw["lead_id"].(string)
 	m.ConversationID, _ = raw["conversation_id"].(string)
 	m.SyncedAt, _ = raw["synced_at"].(string)
+	m.Mobile, _ = raw["mobile"].(string)
 	if m.LeadID == "" {
 		return nil
 	}
@@ -170,20 +172,27 @@ var leadNameRe = regexp.MustCompile(`(?i)(?:my name is|i am|i'm|this is|name is|
 // maybeSyncLeadFromFreeText watches ordinary chat text (not just structured
 // WhatsApp Flow submissions) for a phone number — a customer who just types
 // "9876543210, I'm Rahul" is still a lead, same as one who filled the form.
-// No-op once the contact already has a Salesforce lead (readSalesforceMeta);
-// from there on, syncMessageToSalesforce appends every message to it.
+// Skips only when this exact mobile was already captured for this contact
+// (readSalesforceMeta.Mobile) — a different number (a repeat enquiry with
+// fresh contact details) still creates its own new lead.
 func (a *App) maybeSyncLeadFromFreeText(account *models.WhatsAppAccount, contact *models.Contact, session *models.ChatbotSession, messageText string) {
-	if readSalesforceMeta(contact) != nil {
-		return
-	}
 	m := indianMobileRe.FindStringSubmatch(messageText)
 	if m == nil {
 		return
 	}
 	mobile := m[1]
+	if meta := readSalesforceMeta(contact); meta != nil && meta.Mobile == mobile {
+		return
+	}
 
 	if session.SessionData == nil {
 		session.SessionData = models.JSONB{}
+	}
+	// A different mobile than whatever this session already captured means
+	// a fresh lead, not a repeat of the one already synced this session.
+	if prevMobile, _ := session.SessionData["mobile"].(string); prevMobile != "" && prevMobile != mobile {
+		delete(session.SessionData, "_lead_synced")
+		delete(session.SessionData, "name")
 	}
 	existingName, _ := session.SessionData["name"].(string)
 	if existingName == "" {
@@ -288,6 +297,7 @@ func (a *App) syncLeadFirstContact(orgID uuid.UUID, contact *models.Contact, nam
 		"lead_id":         resp.LeadID,
 		"conversation_id": conversationID,
 		"synced_at":       time.Now().UTC().Format(time.RFC3339),
+		"mobile":          mobile,
 	}
 	if err := a.DB.Model(contact).Update("metadata", contact.Metadata).Error; err != nil {
 		a.Log.Error("Failed to persist Salesforce lead metadata", "error", err, "contact_id", contact.ID)
