@@ -29,6 +29,8 @@ type SalesforceSyncLogResponse struct {
 	LeadID       string    `json:"lead_id"`
 	Action       string    `json:"action"`
 	ErrorMessage string    `json:"error_message"`
+	RequestBody  string    `json:"request_body"`
+	ResponseBody string    `json:"response_body"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -91,6 +93,8 @@ func (a *App) ListSalesforceSyncLogs(r *fastglue.Request) error {
 			LeadID:       l.LeadID,
 			Action:       l.Action,
 			ErrorMessage: l.ErrorMessage,
+			RequestBody:  l.RequestBody,
+			ResponseBody: l.ResponseBody,
 			CreatedAt:    l.CreatedAt,
 		}
 	}
@@ -233,6 +237,8 @@ func (a *App) logSalesforceSync(orgID, contactID uuid.UUID, kind string, resp *s
 		entry.StatusCode = resp.StatusCode
 		entry.LeadID = resp.LeadID
 		entry.Action = resp.Action
+		entry.RequestBody = resp.RequestBody
+		entry.ResponseBody = resp.ResponseBody
 	}
 	if err != nil {
 		entry.ErrorMessage = err.Error()

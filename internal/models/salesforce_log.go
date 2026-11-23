@@ -19,6 +19,8 @@ type SalesforceSyncLog struct {
 	LeadID         string    `gorm:"size:50" json:"lead_id"`
 	Action         string    `gorm:"size:20" json:"action"` // CREATED / UPDATED, from Salesforce's response
 	ErrorMessage   string    `json:"error_message"`
+	RequestBody    string    `json:"request_body"`  // raw JSON sent to Salesforce
+	ResponseBody   string    `json:"response_body"` // raw JSON (or error text) Salesforce sent back
 	CreatedAt      time.Time `gorm:"autoCreateTime;index" json:"created_at"`
 }
 

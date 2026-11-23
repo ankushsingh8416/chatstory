@@ -81,6 +81,13 @@ type LeadResponse struct {
 	Message       string   `json:"message"`
 	Warnings      []string `json:"warnings"`
 	StatusCode    int      `json:"-"`
+
+	// RequestBody/ResponseBody are the raw bytes sent/received on the wire —
+	// not part of Salesforce's own JSON, filled in by postLead on every
+	// path (even a request that never got a response) so the panel's API
+	// console can show exactly what went out and came back.
+	RequestBody  string `json:"-"`
+	ResponseBody string `json:"-"`
 }
 
 // CreateOrUpdateLead sends the first-contact payload.
@@ -109,22 +116,25 @@ func (c *Client) postLead(ctx context.Context, payload any) (*LeadResponse, erro
 		// Token may have expired server-side despite our cache — refetch once.
 		token, err = c.getToken(ctx, true)
 		if err != nil {
-			return &LeadResponse{StatusCode: status}, fmt.Errorf("refresh token: %w", err)
+			return &LeadResponse{StatusCode: status, RequestBody: string(body)}, fmt.Errorf("refresh token: %w", err)
 		}
 		resp, status, err = c.doLeadRequest(ctx, token, body)
 	}
 	if err != nil {
-		return &LeadResponse{StatusCode: status}, err
+		return &LeadResponse{StatusCode: status, RequestBody: string(body)}, err
 	}
 	if status < 200 || status >= 300 {
-		return &LeadResponse{StatusCode: status, Message: string(resp)}, fmt.Errorf("lead API returned status %d: %s", status, string(resp))
+		return &LeadResponse{StatusCode: status, Message: string(resp), RequestBody: string(body), ResponseBody: string(resp)},
+			fmt.Errorf("lead API returned status %d: %s", status, string(resp))
 	}
 
 	var out LeadResponse
 	if err := json.Unmarshal(resp, &out); err != nil {
-		return &LeadResponse{StatusCode: status}, fmt.Errorf("parse lead response: %w", err)
+		return &LeadResponse{StatusCode: status, RequestBody: string(body), ResponseBody: string(resp)}, fmt.Errorf("parse lead response: %w", err)
 	}
 	out.StatusCode = status
+	out.RequestBody = string(body)
+	out.ResponseBody = string(resp)
 	return &out, nil
 }
 

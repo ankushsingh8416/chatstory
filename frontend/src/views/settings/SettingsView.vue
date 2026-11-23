@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader, AuditLogPanel } from '@/components/shared'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
@@ -115,10 +116,22 @@ interface SalesforceSyncLogRow {
   lead_id: string
   action: string
   error_message: string
+  request_body: string
+  response_body: string
   created_at: string
 }
 const salesforceSyncLogs = ref<SalesforceSyncLogRow[]>([])
 const isLoadingSfLogs = ref(false)
+const sfConsoleLog = ref<SalesforceSyncLogRow | null>(null)
+
+function prettyJson(raw: string): string {
+  if (!raw) return '(empty)'
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
 
 async function fetchSalesforceSyncLogs() {
   isLoadingSfLogs.value = true
@@ -673,6 +686,7 @@ function togglePlayAudio(type: 'hold_music' | 'ringback') {
                         <th class="text-left p-2 font-medium">HTTP</th>
                         <th class="text-left p-2 font-medium">Lead ID</th>
                         <th class="text-left p-2 font-medium">When</th>
+                        <th class="text-left p-2 font-medium"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -687,12 +701,41 @@ function togglePlayAudio(type: 'hold_music' | 'ringback') {
                         <td class="p-2 text-white/60 light:text-gray-600">{{ log.status_code || '—' }}</td>
                         <td class="p-2 text-white/60 light:text-gray-600">{{ log.lead_id || '—' }}</td>
                         <td class="p-2 text-white/40 light:text-gray-400">{{ new Date(log.created_at).toLocaleString() }}</td>
+                        <td class="p-2 text-right">
+                          <Button variant="ghost" size="sm" @click="sfConsoleLog = log">View</Button>
+                        </td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
             </div>
+
+            <Dialog :open="!!sfConsoleLog" @update:open="(v) => { if (!v) sfConsoleLog = null }">
+              <DialogContent class="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Salesforce API call</DialogTitle>
+                  <DialogDescription>
+                    {{ sfConsoleLog?.contact_name || sfConsoleLog?.contact_phone }} — {{ sfConsoleLog && new Date(sfConsoleLog.created_at).toLocaleString() }}
+                    — HTTP {{ sfConsoleLog?.status_code || '—' }}
+                  </DialogDescription>
+                </DialogHeader>
+                <div v-if="sfConsoleLog" class="space-y-4">
+                  <div>
+                    <p class="text-xs font-medium text-white/50 light:text-gray-500 mb-1">Request</p>
+                    <pre class="text-xs bg-black/30 light:bg-gray-50 rounded-lg p-3 overflow-auto max-h-60 whitespace-pre-wrap">{{ prettyJson(sfConsoleLog.request_body) }}</pre>
+                  </div>
+                  <div>
+                    <p class="text-xs font-medium text-white/50 light:text-gray-500 mb-1">Response</p>
+                    <pre class="text-xs bg-black/30 light:bg-gray-50 rounded-lg p-3 overflow-auto max-h-60 whitespace-pre-wrap">{{ prettyJson(sfConsoleLog.response_body) }}</pre>
+                  </div>
+                  <div v-if="sfConsoleLog.error_message">
+                    <p class="text-xs font-medium text-red-400 mb-1">Error</p>
+                    <p class="text-xs text-red-400">{{ sfConsoleLog.error_message }}</p>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             <div v-if="orgID" class="mt-4">
               <AuditLogPanel :key="generalLogKey" resource-type="settings.general" :resource-id="orgID" />
             </div>
