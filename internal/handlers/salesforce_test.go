@@ -30,15 +30,15 @@ func TestNormalizeProjectName(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{"Estate 105, Noida", "Estate105"},
+		{"Estate 105, Noida", "Estate 105"},
 		{"Estate 360, Gurugram", "Estate 360"},
 		{"Estate 361, Gurugram", "Estate 361 Residences"},
-		{"The Terraces, Gurugram", "Estate 361 - The Terraces"},
+		{"The Terraces, Gurugram", "The Terraces"},
 		{"Max District", "Max District"},
-		{"Max Square Two", "Max Square - Two"},
+		{"Max Square Two", "Max Square Two"},
 		{"The Bungalows", "The Bungalows"},
 		{"222 Rajpur, Dehradun", "222 Rajpur"},
-		{"Max One (Office)", "Max One"},
+		{"Max One (Office)", "MAX One"},
 		{"", ""},
 		{"Some Unknown Project, City", "Some Unknown Project"},
 	}

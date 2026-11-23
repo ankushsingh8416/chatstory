@@ -175,28 +175,32 @@ var leadNameRe = regexp.MustCompile(`(?i)(?:my name is|i am|i'm|this is|name is|
 
 // salesforceProjectNames maps a project as the chatbot knows it (its flow
 // button titles, lowercased, with any ", <city>" suffix stripped) to the
-// exact string Salesforce's Lead "Project Name" picklist accepts — taken
-// from maxestates.in's own CF7-to-Salesforce forwarder (functions.php),
-// which is the other system writing to this same picklist. A mismatch here
-// doesn't error — Salesforce just silently leaves Project Name blank.
+// exact string Salesforce's Lead "Project Name" picklist (Project_Name__c)
+// accepts — pulled live via the Lead object's describe API (the authoritative
+// source; an earlier version of this map was guessed from the website's own
+// CF7-to-Salesforce forwarder and got "Estate 105"/"Max Square Two"/"MAX One"
+// wrong). A mismatch here doesn't error — Salesforce just silently leaves
+// Project Name blank.
 var salesforceProjectNames = map[string]string{
-	"222 rajpur":                             "222 Rajpur",
-	"estate 105":                             "Estate105", // sic — no space, per the picklist
-	"estate 128":                             "Estate 128",
-	"estate 360":                             "Estate 360",
-	"estate 361":                             "Estate 361 Residences",
-	"the terraces":                           "Estate 361 - The Terraces",
-	"max district":                           "Max District",
-	"max square two":                         "Max Square - Two",
-	"max square - two":                       "Max Square - Two",
-	"max square":                             "Max Square",
-	"max towers":                             "Max Towers",
-	"max house":                              "Max House",
-	"max one":                                "Max One",
-	"max one (office)":                       "Max One",
-	"the bungalows":                          "The Bungalows",
-	"senior living residences at estate 361": "Estate 361 Antara Residences",
-	"senior living residences at estate 360": "Antara",
+	"222 rajpur":       "222 Rajpur",
+	"estate 105":       "Estate 105",
+	"estate 128":       "Estate 128",
+	"estate 360":       "Estate 360",
+	"estate 361":       "Estate 361 Residences",
+	"the terraces":     "The Terraces",
+	"max district":     "Max District",
+	"max square two":   "Max Square Two",
+	"max square - two": "Max Square Two",
+	"max square":       "Max Square",
+	"max towers":       "Max Towers",
+	"max house":        "Max House",
+	"max one":          "MAX One",
+	"max one (office)": "MAX One",
+	"the bungalows":    "The Bungalows",
+	// Confirmed present in the live picklist, so no remap needed, but kept
+	// explicit in case a flow ever shortens the button title that captures it.
+	"residences at estate 360":               "Residences at Estate 360",
+	"senior living residences at estate 360": "Senior Living Residences at Estate 360",
 }
 
 // normalizeProjectName maps a chatbot-captured project (often a button
