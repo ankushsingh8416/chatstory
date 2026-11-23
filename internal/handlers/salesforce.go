@@ -173,6 +173,51 @@ var leadEmailRe = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-
 // ("my name is Rahul", "I'm Rahul", "this is Rahul Sharma").
 var leadNameRe = regexp.MustCompile(`(?i)(?:my name is|i am|i'm|this is|name is|name[:\-])\s+([A-Za-z][A-Za-z\s]{1,30}?)(?:[.,!\n]|$)`)
 
+// salesforceProjectNames maps a project as the chatbot knows it (its flow
+// button titles, lowercased, with any ", <city>" suffix stripped) to the
+// exact string Salesforce's Lead "Project Name" picklist accepts — taken
+// from maxestates.in's own CF7-to-Salesforce forwarder (functions.php),
+// which is the other system writing to this same picklist. A mismatch here
+// doesn't error — Salesforce just silently leaves Project Name blank.
+var salesforceProjectNames = map[string]string{
+	"222 rajpur":                             "222 Rajpur",
+	"estate 105":                             "Estate105", // sic — no space, per the picklist
+	"estate 128":                             "Estate 128",
+	"estate 360":                             "Estate 360",
+	"estate 361":                             "Estate 361 Residences",
+	"the terraces":                           "Estate 361 - The Terraces",
+	"max district":                           "Max District",
+	"max square two":                         "Max Square - Two",
+	"max square - two":                       "Max Square - Two",
+	"max square":                             "Max Square",
+	"max towers":                             "Max Towers",
+	"max house":                              "Max House",
+	"max one":                                "Max One",
+	"max one (office)":                       "Max One",
+	"the bungalows":                          "The Bungalows",
+	"senior living residences at estate 361": "Estate 361 Antara Residences",
+	"senior living residences at estate 360": "Antara",
+}
+
+// normalizeProjectName maps a chatbot-captured project (often a button
+// title like "Estate 360, Gurugram") to Salesforce's exact picklist value.
+// Unrecognized input is returned with the city suffix stripped, so it still
+// stands a chance of matching rather than being dropped outright.
+func normalizeProjectName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	clean := raw
+	if i := strings.Index(clean, ","); i != -1 {
+		clean = strings.TrimSpace(clean[:i])
+	}
+	if sf, ok := salesforceProjectNames[strings.ToLower(clean)]; ok {
+		return sf
+	}
+	return clean
+}
+
 // maybeSyncLeadFromFreeText watches ordinary chat text (not just structured
 // WhatsApp Flow submissions) for a phone number — a customer who just types
 // "9876543210, I'm Rahul" is still a lead, same as one who filled the form.
@@ -258,6 +303,7 @@ func (a *App) syncLeadFirstContact(orgID uuid.UUID, contact *models.Contact, nam
 	if name == "" || mobile == "" {
 		return
 	}
+	project = normalizeProjectName(project)
 	client, err := a.getSalesforceClient(orgID)
 	if err != nil {
 		a.Log.Error("Failed to build Salesforce client", "error", err, "org_id", orgID)

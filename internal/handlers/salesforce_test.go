@@ -25,6 +25,30 @@ func TestIndianMobileRe(t *testing.T) {
 	}
 }
 
+func TestNormalizeProjectName(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{"Estate 105, Noida", "Estate105"},
+		{"Estate 360, Gurugram", "Estate 360"},
+		{"Estate 361, Gurugram", "Estate 361 Residences"},
+		{"The Terraces, Gurugram", "Estate 361 - The Terraces"},
+		{"Max District", "Max District"},
+		{"Max Square Two", "Max Square - Two"},
+		{"The Bungalows", "The Bungalows"},
+		{"222 Rajpur, Dehradun", "222 Rajpur"},
+		{"Max One (Office)", "Max One"},
+		{"", ""},
+		{"Some Unknown Project, City", "Some Unknown Project"},
+	}
+	for _, c := range cases {
+		if got := normalizeProjectName(c.raw); got != c.want {
+			t.Errorf("normalizeProjectName(%q) = %q, want %q", c.raw, got, c.want)
+		}
+	}
+}
+
 func TestLeadNameRe(t *testing.T) {
 	cases := []struct {
 		text string
