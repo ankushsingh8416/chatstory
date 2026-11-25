@@ -306,6 +306,10 @@ async function saveBusinessHoursSettings() {
 }
 
 async function saveAISettings() {
+  if (!aiSettings.value.ai_system_prompt?.trim()) {
+    toast.error(t('chatbotSettings.systemPromptRequired'))
+    return
+  }
   isSubmitting.value = true
   try {
     const payload: any = {
@@ -869,11 +873,12 @@ function removeEscalationUser(userId: string) {
                   </div>
 
                   <div class="space-y-2">
-                    <Label>{{ $t('chatbotSettings.systemPrompt') }}</Label>
+                    <Label>{{ $t('chatbotSettings.systemPrompt') }} <span class="text-destructive">*</span></Label>
                     <Textarea
                       v-model="aiSettings.ai_system_prompt"
                       :placeholder="$t('chatbotSettings.systemPromptPlaceholder') + '...'"
                       :rows="3"
+                      required
                     />
                   </div>
                 </div>

@@ -1557,7 +1557,7 @@
     "apiKeyPlaceholder": "أدخل مفتاح API (اتركه فارغاً للاحتفاظ بالحالي)",
     "apiKeyHint": "يتم تشفير مفتاح API الخاص بك وتخزينه بشكل آمن",
     "maxTokens": "أقصى عدد من الرموز (Tokens)",
-    "systemPrompt": "توجيه النظام (System Prompt) (اختياري)",
+    "systemPrompt": "توجيه النظام (System Prompt)",
     "systemPromptPlaceholder": "أنت مساعد خدمة عملاء مفيد",
     "maxButtonsError": "يسمح بحد أقصى 10 أزرار",
     "greetingButtonsRequired": "يجب أن تحتوي جميع أزرار الترحيب على عنوان",

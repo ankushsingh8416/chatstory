@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -443,6 +444,9 @@ func (a *App) UpdateChatbotSettings(r *fastglue.Request) error {
 	}
 	if req.AISystemPrompt != nil {
 		settings.AI.SystemPrompt = *req.AISystemPrompt
+	}
+	if settings.AI.Enabled && strings.TrimSpace(settings.AI.SystemPrompt) == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "System Prompt is required when AI is enabled", nil, "")
 	}
 
 	// SLA Settings

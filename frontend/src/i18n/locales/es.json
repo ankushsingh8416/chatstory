@@ -1590,7 +1590,7 @@
     "apiKeyPlaceholder": "Ingrese clave API (dejar vacío para mantener la actual)",
     "apiKeyHint": "Su clave API está cifrada y almacenada de forma segura",
     "maxTokens": "Máximo de tokens",
-    "systemPrompt": "Indicación del sistema (opcional)",
+    "systemPrompt": "Indicación del sistema",
     "systemPromptPlaceholder": "Eres un asistente útil de servicio al cliente",
     "maxButtonsError": "Máximo 10 botones permitidos",
     "greetingButtonsRequired": "Todos los botones de saludo deben tener un título",
